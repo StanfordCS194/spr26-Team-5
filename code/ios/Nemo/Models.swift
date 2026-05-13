@@ -68,7 +68,7 @@ enum ScanIssue: Equatable {
 struct RecognitionRun: Codable, Identifiable, Equatable {
     let id: UUID
     let createdAt: Date
-    let imageData: Data
+    let thumbnailData: Data
     let result: RecognitionResponse
     let photoCreatedAt: Date?
     let photoModifiedAt: Date?
@@ -76,14 +76,14 @@ struct RecognitionRun: Codable, Identifiable, Equatable {
     init(
         id: UUID = UUID(),
         createdAt: Date = Date(),
-        imageData: Data,
+        thumbnailData: Data,
         result: RecognitionResponse,
         photoCreatedAt: Date?,
         photoModifiedAt: Date?
     ) {
         self.id = id
         self.createdAt = createdAt
-        self.imageData = imageData
+        self.thumbnailData = thumbnailData
         self.result = result
         self.photoCreatedAt = photoCreatedAt
         self.photoModifiedAt = photoModifiedAt
@@ -115,7 +115,7 @@ extension RecognitionRun {
         RecognitionRun(
             id: id,
             createdAt: createdAt,
-            imageData: imageData,
+            thumbnailData: thumbnailData,
             result: result.replacingPerson(person),
             photoCreatedAt: photoCreatedAt,
             photoModifiedAt: photoModifiedAt
@@ -126,7 +126,7 @@ extension RecognitionRun {
         RecognitionRun(
             id: id,
             createdAt: createdAt,
-            imageData: imageData,
+            thumbnailData: thumbnailData,
             result: result.removingPerson(),
             photoCreatedAt: photoCreatedAt,
             photoModifiedAt: photoModifiedAt

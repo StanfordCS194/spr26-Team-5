@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct FaceRecallApp: App {
+struct NemoApp: App {
     @StateObject private var notifications = NotificationManager()
 
     var body: some Scene {

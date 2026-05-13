@@ -25,7 +25,7 @@ def create_app(
     recognizer: Recognizer | None = None,
     distance_threshold: float | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="FaceRecall Backend")
+    app = FastAPI(title="Nemo Backend")
     app.state.db = Database(db_path or os.environ.get("FACE_DB_PATH", DEFAULT_DB_PATH))
     app.state.recognizer = recognizer or FaceRecognitionRecognizer()
     app.state.distance_threshold = (

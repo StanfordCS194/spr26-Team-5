@@ -11,7 +11,9 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>$(PRODUCT_NAME)</string>
+	<string>Nemo</string>
+	<key>CFBundleDisplayName</key>
+	<string>Nemo</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
 	<key>CFBundleShortVersionString</key>
@@ -26,9 +28,9 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>FaceRecall connects to your Mac on the local network while testing the backend.</string>
+	<string>Nemo connects to your Mac on the local network while testing the backend.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>FaceRecall scans recent photos to recognize people you have saved.</string>
+	<string>Nemo scans recent photos to recognize people you have saved.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
