@@ -8,6 +8,11 @@ class Person(BaseModel):
     created_at: str
 
 
+class PersonUpdate(BaseModel):
+    name: str
+    description: str
+
+
 class RecognitionResponse(BaseModel):
     status: str
     person: Person | None
