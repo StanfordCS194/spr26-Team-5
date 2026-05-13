@@ -18,6 +18,11 @@ struct Person: Codable, Identifiable, Equatable {
     }
 }
 
+struct PersonUpdateRequest: Codable {
+    let name: String
+    let description: String
+}
+
 struct RecognitionResponse: Codable, Equatable {
     let status: RecognitionStatus
     let person: Person?

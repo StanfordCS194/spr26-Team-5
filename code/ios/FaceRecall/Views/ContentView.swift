@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var notifications: NotificationManager
@@ -7,6 +8,7 @@ struct ContentView: View {
 
     @State private var selectedPersonID: String?
     @State private var showingCreatePerson = false
+    @State private var showingDatabase = false
     @State private var healthStatus = "Not checked"
     @State private var isCheckingHealth = false
 
@@ -74,8 +76,18 @@ struct ContentView: View {
                         }
                     }
 
+                    if let imageData = photoWatcher.lastScannedImageData {
+                        PhotoPreview(imageData: imageData)
+                    }
+
                     if let result = photoWatcher.lastResult {
                         RecognitionResultView(result: result)
+                    }
+                }
+
+                Section("Database") {
+                    Button("View and Edit People") {
+                        showingDatabase = true
                     }
                 }
 
@@ -109,6 +121,9 @@ struct ContentView: View {
                         selectedPersonID = person.id
                     }
                 )
+            }
+            .sheet(isPresented: $showingDatabase) {
+                PeopleDatabaseView(backendURL: backendURL)
             }
             .onAppear {
                 photoWatcher.startObservingIfAllowed()
@@ -175,6 +190,24 @@ struct ContentView: View {
     }
 }
 
+private struct PhotoPreview: View {
+    let imageData: Data
+
+    var body: some View {
+        if let image = UIImage(data: imageData) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFit()
+                .frame(maxHeight: 280)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .accessibilityLabel("Latest scanned photo")
+        } else {
+            Text("Could not display scanned photo.")
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
 private struct RecognitionResultView: View {
     let result: RecognitionResponse
 
@@ -191,6 +224,238 @@ private struct RecognitionResultView: View {
                 Text("Distance: \(String(format: "%.3f", distance))")
                     .foregroundStyle(.secondary)
             }
+        }
+    }
+}
+
+private struct PeopleDatabaseView: View {
+    let backendURL: String
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var people: [Person] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+
+    private let apiClient = APIClient()
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if isLoading {
+                    ProgressView()
+                }
+
+                if let errorMessage {
+                    Section("Error") {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section("People") {
+                    if people.isEmpty && !isLoading {
+                        Text("No people in the database.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(people) { person in
+                            NavigationLink {
+                                PersonDatabaseEditor(
+                                    backendURL: backendURL,
+                                    person: person,
+                                    onChanged: {
+                                        Task {
+                                            await loadPeople()
+                                        }
+                                    }
+                                )
+                            } label: {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(person.name)
+                                        .font(.headline)
+                                    Text(person.description.isEmpty ? "No description." : person.description)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    Text(person.id)
+                                        .font(.caption)
+                                        .foregroundStyle(.tertiary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    Task {
+                                        await delete(person)
+                                    }
+                                } label: {
+                                    Text("Delete")
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Database")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Refresh") {
+                        Task {
+                            await loadPeople()
+                        }
+                    }
+                }
+            }
+            .task {
+                await loadPeople()
+            }
+        }
+    }
+
+    private func loadPeople() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            people = try await apiClient.people(baseURL: backendURL)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func delete(_ person: Person) async {
+        errorMessage = nil
+
+        do {
+            try await apiClient.deletePerson(id: person.id, baseURL: backendURL)
+            people.removeAll { $0.id == person.id }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct PersonDatabaseEditor: View {
+    let backendURL: String
+    let person: Person
+    let onChanged: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var description: String
+    @State private var isSaving = false
+    @State private var isDeleting = false
+    @State private var errorMessage: String?
+
+    private let apiClient = APIClient()
+
+    init(backendURL: String, person: Person, onChanged: @escaping () -> Void) {
+        self.backendURL = backendURL
+        self.person = person
+        self.onChanged = onChanged
+        _name = State(initialValue: person.name)
+        _description = State(initialValue: person.description)
+    }
+
+    var body: some View {
+        Form {
+            Section("Record") {
+                Text(person.id)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text("Created: \(person.createdAt)")
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Editable Fields") {
+                TextField("Name", text: $name)
+                TextField("Description", text: $description, axis: .vertical)
+                    .lineLimit(3...6)
+            }
+
+            Section {
+                Button(role: .destructive) {
+                    Task {
+                        await delete()
+                    }
+                } label: {
+                    if isDeleting {
+                        ProgressView()
+                    } else {
+                        Text("Delete Person")
+                    }
+                }
+                .disabled(isSaving || isDeleting)
+            }
+
+            if let errorMessage {
+                Section("Error") {
+                    Text(errorMessage)
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .navigationTitle("Edit Person")
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button {
+                    Task {
+                        await save()
+                    }
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                    } else {
+                        Text("Save")
+                    }
+                }
+                .disabled(trimmedName.isEmpty || isSaving || isDeleting)
+            }
+        }
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedDescription: String {
+        description.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func save() async {
+        isSaving = true
+        errorMessage = nil
+        defer { isSaving = false }
+
+        do {
+            _ = try await apiClient.updatePerson(
+                id: person.id,
+                name: trimmedName,
+                description: trimmedDescription,
+                baseURL: backendURL
+            )
+            onChanged()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func delete() async {
+        isDeleting = true
+        errorMessage = nil
+        defer { isDeleting = false }
+
+        do {
+            try await apiClient.deletePerson(id: person.id, baseURL: backendURL)
+            onChanged()
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
         }
     }
 }

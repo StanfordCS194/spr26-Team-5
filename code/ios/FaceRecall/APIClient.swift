@@ -43,9 +43,27 @@ struct APIClient {
         return try await send(request)
     }
 
+    func people(baseURL: String) async throws -> [Person] {
+        let request = try request(path: "/people", baseURL: baseURL)
+        return try await send(request)
+    }
+
     func person(id: String, baseURL: String) async throws -> Person {
         let request = try request(path: "/people/\(id)", baseURL: baseURL)
         return try await send(request)
+    }
+
+    func updatePerson(id: String, name: String, description: String, baseURL: String) async throws -> Person {
+        var request = try request(path: "/people/\(id)", baseURL: baseURL)
+        request.httpMethod = "PATCH"
+        request.setJSONBody(PersonUpdateRequest(name: name, description: description))
+        return try await send(request)
+    }
+
+    func deletePerson(id: String, baseURL: String) async throws {
+        var request = try request(path: "/people/\(id)", baseURL: baseURL)
+        request.httpMethod = "DELETE"
+        try await sendEmpty(request)
     }
 
     private func request(path: String, baseURL: String) throws -> URLRequest {
@@ -68,9 +86,25 @@ struct APIClient {
         }
         return try JSONDecoder().decode(T.self, from: data)
     }
+
+    private func sendEmpty(_ request: URLRequest) async throws {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? "No response body"
+            throw APIClientError.serverError(httpResponse.statusCode, message)
+        }
+    }
 }
 
 private extension URLRequest {
+    mutating func setJSONBody<T: Encodable>(_ value: T) {
+        setValue("application/json", forHTTPHeaderField: "Content-Type")
+        httpBody = try? JSONEncoder().encode(value)
+    }
+
     mutating func setMultipartBody(fields: [String: String], fileField: String, fileName: String, mimeType: String, data: Data) {
         let boundary = "Boundary-\(UUID().uuidString)"
         setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")

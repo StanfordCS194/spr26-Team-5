@@ -7,11 +7,14 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     @Published var photoAuthorizationStatus: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @Published var isProcessing = false
     @Published var lastResult: RecognitionResponse?
+    @Published var lastScannedImageData: Data?
     @Published var pendingUnknownImageData: Data?
     @Published var events: [AppEvent] = []
 
     private let apiClient = APIClient()
     private var isObserving = false
+    private var recentImageFetchResult: PHFetchResult<PHAsset>?
+    private var pendingInsertedPhotoIDs: [String] = []
 
     deinit {
         if isObserving {
@@ -31,6 +34,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         guard !isObserving else {
             return
         }
+        recentImageFetchResult = fetchRecentImageAssets()
         PHPhotoLibrary.shared().register(self)
         isObserving = true
         appendEvent(title: "Photos observer active", detail: "Watching for changes while the app is running.")
@@ -54,12 +58,15 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             }
 
             let imageData = try await jpegData(for: asset)
+            lastScannedImageData = imageData
             let response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
             markProcessed(asset)
             lastResult = response
+            appendEvent(title: "Scanned photo", detail: photoDetail(for: asset))
 
             switch response.status {
             case .recognized:
+                pendingUnknownImageData = nil
                 if let person = response.person {
                     appendEvent(title: "Recognized \(person.name)", detail: "Distance: \(formattedDistance(response.distance))")
                     notifications.notifyRecognized(person: person)
@@ -76,7 +83,24 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
     nonisolated func photoLibraryDidChange(_ changeInstance: PHChange) {
         Task { @MainActor in
-            appendEvent(title: "Photos changed", detail: "Open the app and tap Scan Latest Photo to process deterministically.")
+            if let recentImageFetchResult,
+               let changeDetails = changeInstance.changeDetails(for: recentImageFetchResult) {
+                self.recentImageFetchResult = changeDetails.fetchResultAfterChanges
+                let insertedIDs = changeDetails.insertedObjects.map(\.localIdentifier)
+                if !insertedIDs.isEmpty {
+                    pendingInsertedPhotoIDs.append(contentsOf: insertedIDs)
+                    pendingInsertedPhotoIDs = Array(NSOrderedSet(array: pendingInsertedPhotoIDs).compactMap { $0 as? String })
+                    appendEvent(
+                        title: "New photo detected",
+                        detail: "\(insertedIDs.count) new photo(s) queued from Photos."
+                    )
+                    return
+                }
+            } else {
+                recentImageFetchResult = fetchRecentImageAssets()
+            }
+
+            appendEvent(title: "Photos changed", detail: "Tap Scan Latest Photo to process the latest visible image.")
         }
     }
 
@@ -85,20 +109,48 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     }
 
     private func newestUnprocessedImageAsset() -> PHAsset? {
-        let options = PHFetchOptions()
-        options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: false)]
-        options.fetchLimit = 25
-
         let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
-        let assets = PHAsset.fetchAssets(with: .image, options: options)
-        var result: PHAsset?
-        assets.enumerateObjects { asset, _, stop in
-            if !processedIDs.contains(asset.localIdentifier) {
-                result = asset
-                stop.pointee = true
+
+        while !pendingInsertedPhotoIDs.isEmpty {
+            let assetID = pendingInsertedPhotoIDs.removeLast()
+            if processedIDs.contains(assetID) {
+                continue
+            }
+            if let asset = fetchAsset(id: assetID) {
+                return asset
             }
         }
-        return result
+
+        let assets = fetchRecentImageAssets()
+        recentImageFetchResult = assets
+        return assets.objects()
+            .filter { !processedIDs.contains($0.localIdentifier) }
+            .sorted { newestDate(for: $0) > newestDate(for: $1) }
+            .first
+    }
+
+    private func fetchRecentImageAssets() -> PHFetchResult<PHAsset> {
+        let options = PHFetchOptions()
+        options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        options.fetchLimit = 50
+
+        let collections = PHAssetCollection.fetchAssetCollections(
+            with: .smartAlbum,
+            subtype: .smartAlbumRecentlyAdded,
+            options: nil
+        )
+
+        if let recentlyAdded = collections.firstObject {
+            return PHAsset.fetchAssets(in: recentlyAdded, options: options)
+        }
+
+        options.sortDescriptors = [NSSortDescriptor(key: "modificationDate", ascending: false)]
+        return PHAsset.fetchAssets(with: .image, options: options)
+    }
+
+    private func fetchAsset(id: String) -> PHAsset? {
+        let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
+        return assets.firstObject
     }
 
     private func jpegData(for asset: PHAsset) async throws -> Data {
@@ -133,6 +185,16 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         UserDefaults.standard.set(Array(ids.suffix(500)), forKey: "processedPhotoIDs")
     }
 
+    private func newestDate(for asset: PHAsset) -> Date {
+        asset.modificationDate ?? asset.creationDate ?? .distantPast
+    }
+
+    private func photoDetail(for asset: PHAsset) -> String {
+        let created = asset.creationDate.map { Self.dateFormatter.string(from: $0) } ?? "unknown"
+        let modified = asset.modificationDate.map { Self.dateFormatter.string(from: $0) } ?? "unknown"
+        return "Created: \(created). Modified: \(modified)."
+    }
+
     private func appendEvent(title: String, detail: String) {
         events.insert(AppEvent(title: title, detail: detail), at: 0)
         events = Array(events.prefix(20))
@@ -143,6 +205,23 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             return "n/a"
         }
         return String(format: "%.3f", distance)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateStyle = .short
+        formatter.timeStyle = .medium
+        return formatter
+    }()
+}
+
+private extension PHFetchResult where ObjectType == PHAsset {
+    func objects() -> [PHAsset] {
+        var assets: [PHAsset] = []
+        enumerateObjects { asset, _, _ in
+            assets.append(asset)
+        }
+        return assets
     }
 }
 
