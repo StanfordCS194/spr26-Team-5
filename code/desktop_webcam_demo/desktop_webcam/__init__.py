@@ -1,0 +1,1 @@
+"""Desktop webcam prototype package."""
