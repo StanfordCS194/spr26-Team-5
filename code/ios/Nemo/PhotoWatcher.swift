@@ -45,9 +45,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         guard !isObserving else {
             return
         }
-        recentImageFetchResult = fetchRecentImageAssets()
-        knownRecentPhotoIDs = Set(recentImageFetchResult?.objects().map(\.localIdentifier) ?? [])
-        refreshForRecentUnprocessedPhoto()
+        snapshotCurrentPhotoState()
         PHPhotoLibrary.shared().register(self)
         isObserving = true
     }
@@ -73,11 +71,6 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
         if let latest = newAssets.first {
             setNewPhoto(latest)
-            return
-        }
-
-        if latestInsertedPhotoID == nil {
-            refreshForRecentUnprocessedPhoto()
         }
     }
 
@@ -177,6 +170,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
                 let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
                 if let latest = changeDetails.changedObjects
+                    .filter({ knownRecentPhotoIDs.contains($0.localIdentifier) })
                     .filter({ !processedIDs.contains($0.localIdentifier) })
                     .sorted(by: { newestDate(for: $0) > newestDate(for: $1) })
                     .first,
@@ -380,18 +374,13 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         scanIssue = nil
     }
 
-    private func refreshForRecentUnprocessedPhoto() {
-        let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
-        let latest = fetchRecentImageAssets()
-            .objects()
-            .filter { !processedIDs.contains($0.localIdentifier) }
-            .filter { isRecentEnough($0) }
-            .sorted { newestDate(for: $0) > newestDate(for: $1) }
-            .first
-
-        if let latest {
-            setNewPhoto(latest)
-        }
+    private func snapshotCurrentPhotoState() {
+        let assets = fetchRecentImageAssets()
+        recentImageFetchResult = assets
+        knownRecentPhotoIDs = Set(assets.objects().map(\.localIdentifier))
+        latestInsertedPhotoID = nil
+        pendingPhotoIdentifier = nil
+        hasNewPhoto = false
     }
 
     private func isRecentEnough(_ asset: PHAsset) -> Bool {

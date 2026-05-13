@@ -228,7 +228,7 @@ private struct NewPhotoStatusView: View {
         if isProcessing {
             return "Nemo is sending the newest photo to the backend."
         }
-        return hasNewPhoto ? "A recent Photos change was detected and will scan automatically." : "Take or import a photo. The app scans automatically when it appears."
+        return hasNewPhoto ? "A recent Photos change was detected and will scan automatically." : "Open Nemo, then take or import a photo to scan it."
     }
 
     private var tint: Color {
