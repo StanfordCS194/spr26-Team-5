@@ -15,6 +15,26 @@ enum APIClientError: Error, LocalizedError {
             return "Backend error \(status): \(message)"
         }
     }
+
+    var statusCode: Int? {
+        switch self {
+        case let .serverError(status, _):
+            return status
+        default:
+            return nil
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .invalidBaseURL:
+            return "Invalid backend URL."
+        case .invalidResponse:
+            return "Backend returned an invalid response."
+        case let .serverError(_, message):
+            return message
+        }
+    }
 }
 
 struct APIClient {
@@ -53,6 +73,11 @@ struct APIClient {
         return try await send(request)
     }
 
+    func personReferenceImage(id: String, baseURL: String) async throws -> Data? {
+        let request = try request(path: "/people/\(id)/reference-image", baseURL: baseURL)
+        return try await sendOptionalData(request)
+    }
+
     func updatePerson(id: String, name: String, description: String, baseURL: String) async throws -> Person {
         var request = try request(path: "/people/\(id)", baseURL: baseURL)
         request.httpMethod = "PATCH"
@@ -81,7 +106,7 @@ struct APIClient {
             throw APIClientError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? "No response body"
+            let message = Self.errorMessage(from: data)
             throw APIClientError.serverError(httpResponse.statusCode, message)
         }
         return try JSONDecoder().decode(T.self, from: data)
@@ -93,9 +118,32 @@ struct APIClient {
             throw APIClientError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? "No response body"
+            let message = Self.errorMessage(from: data)
             throw APIClientError.serverError(httpResponse.statusCode, message)
         }
+    }
+
+    private func sendOptionalData(_ request: URLRequest) async throws -> Data? {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
+        }
+        if httpResponse.statusCode == 404 {
+            return nil
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let message = Self.errorMessage(from: data)
+            throw APIClientError.serverError(httpResponse.statusCode, message)
+        }
+        return data
+    }
+
+    private static func errorMessage(from data: Data) -> String {
+        if let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let detail = payload["detail"] as? String {
+            return detail
+        }
+        return String(data: data, encoding: .utf8) ?? "No response body"
     }
 }
 

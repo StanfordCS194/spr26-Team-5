@@ -6,15 +6,25 @@ import UIKit
 final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserver {
     @Published var photoAuthorizationStatus: PHAuthorizationStatus = PHPhotoLibrary.authorizationStatus(for: .readWrite)
     @Published var isProcessing = false
+    @Published var hasNewPhoto = false
     @Published var lastResult: RecognitionResponse?
     @Published var lastScannedImageData: Data?
     @Published var pendingUnknownImageData: Data?
-    @Published var events: [AppEvent] = []
+    @Published var lastScanMessage: String?
+    @Published var scanIssue: ScanIssue?
+    @Published var pendingPhotoIdentifier: String?
+    @Published var recognitionRuns: [RecognitionRun] = []
 
     private let apiClient = APIClient()
     private var isObserving = false
     private var recentImageFetchResult: PHFetchResult<PHAsset>?
-    private var pendingInsertedPhotoIDs: [String] = []
+    private var latestInsertedPhotoID: String?
+    private var knownRecentPhotoIDs = Set<String>()
+
+    override init() {
+        recognitionRuns = Self.loadRecognitionRuns()
+        super.init()
+    }
 
     deinit {
         if isObserving {
@@ -35,14 +45,44 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             return
         }
         recentImageFetchResult = fetchRecentImageAssets()
+        knownRecentPhotoIDs = Set(recentImageFetchResult?.objects().map(\.localIdentifier) ?? [])
+        refreshForRecentUnprocessedPhoto()
         PHPhotoLibrary.shared().register(self)
         isObserving = true
-        appendEvent(title: "Photos observer active", detail: "Watching for changes while the app is running.")
+    }
+
+    func refreshForPhotoChanges() {
+        guard photoAuthorizationStatus == .authorized || photoAuthorizationStatus == .limited else {
+            return
+        }
+
+        let assets = fetchRecentImageAssets()
+        recentImageFetchResult = assets
+
+        let currentAssets = assets.objects()
+        let currentIDs = Set(currentAssets.map(\.localIdentifier))
+        let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
+
+        let newAssets = currentAssets
+            .filter { !knownRecentPhotoIDs.contains($0.localIdentifier) }
+            .filter { !processedIDs.contains($0.localIdentifier) }
+            .sorted { newestDate(for: $0) > newestDate(for: $1) }
+
+        knownRecentPhotoIDs = currentIDs
+
+        if let latest = newAssets.first {
+            setNewPhoto(latest)
+            return
+        }
+
+        if latestInsertedPhotoID == nil {
+            refreshForRecentUnprocessedPhoto()
+        }
     }
 
     func scanLatestPhoto(baseURL: String, notifications: NotificationManager) async {
         guard photoAuthorizationStatus == .authorized || photoAuthorizationStatus == .limited else {
-            appendEvent(title: "Photos permission needed", detail: "Grant Photos access before scanning.")
+            scanIssue = .failed("Grant Photos access before scanning.")
             return
         }
         guard !isProcessing else {
@@ -53,31 +93,61 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
         do {
             guard let asset = newestUnprocessedImageAsset() else {
-                appendEvent(title: "No new photo", detail: "All recent photos have already been processed.")
+                hasNewPhoto = false
+                latestInsertedPhotoID = nil
+                scanIssue = nil
+                lastScanMessage = nil
                 return
             }
 
             let imageData = try await jpegData(for: asset)
             lastScannedImageData = imageData
-            let response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
+            let response: RecognitionResponse
+            do {
+                response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
+            } catch let error as APIClientError where error.statusCode == 400 && error.message.localizedCaseInsensitiveContains("No face detected") {
+                markProcessed(asset)
+                hasNewPhoto = false
+                latestInsertedPhotoID = nil
+                pendingPhotoIdentifier = nil
+                lastResult = nil
+                pendingUnknownImageData = nil
+                lastScanMessage = nil
+                scanIssue = .noFaceDetected
+                return
+            }
+
             markProcessed(asset)
             lastResult = response
-            appendEvent(title: "Scanned photo", detail: photoDetail(for: asset))
+            hasNewPhoto = false
+            latestInsertedPhotoID = nil
+            pendingPhotoIdentifier = nil
+            scanIssue = nil
+            lastScanMessage = scanSummary(for: response)
+            recognitionRuns.insert(
+                RecognitionRun(
+                    imageData: imageData,
+                    result: response,
+                    photoCreatedAt: asset.creationDate,
+                    photoModifiedAt: asset.modificationDate
+                ),
+                at: 0
+            )
+            recognitionRuns = Array(recognitionRuns.prefix(50))
+            saveRecognitionRuns()
 
             switch response.status {
             case .recognized:
                 pendingUnknownImageData = nil
                 if let person = response.person {
-                    appendEvent(title: "Recognized \(person.name)", detail: "Distance: \(formattedDistance(response.distance))")
                     notifications.notifyRecognized(person: person)
                 }
             case .unknown:
                 pendingUnknownImageData = imageData
-                appendEvent(title: "Unknown person", detail: "Tap notification or Create Person to enroll.")
                 notifications.notifyUnknown()
             }
         } catch {
-            appendEvent(title: "Scan failed", detail: error.localizedDescription)
+            scanIssue = .failed(error.localizedDescription)
         }
     }
 
@@ -86,21 +156,28 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             if let recentImageFetchResult,
                let changeDetails = changeInstance.changeDetails(for: recentImageFetchResult) {
                 self.recentImageFetchResult = changeDetails.fetchResultAfterChanges
-                let insertedIDs = changeDetails.insertedObjects.map(\.localIdentifier)
-                if !insertedIDs.isEmpty {
-                    pendingInsertedPhotoIDs.append(contentsOf: insertedIDs)
-                    pendingInsertedPhotoIDs = Array(NSOrderedSet(array: pendingInsertedPhotoIDs).compactMap { $0 as? String })
-                    appendEvent(
-                        title: "New photo detected",
-                        detail: "\(insertedIDs.count) new photo(s) queued from Photos."
-                    )
+                if let latest = changeDetails.insertedObjects
+                    .filter({ isRecentEnough($0) })
+                    .sorted(by: { newestDate(for: $0) > newestDate(for: $1) })
+                    .first {
+                    knownRecentPhotoIDs.insert(latest.localIdentifier)
+                    setNewPhoto(latest)
                     return
+                }
+
+                let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
+                if let latest = changeDetails.changedObjects
+                    .filter({ !processedIDs.contains($0.localIdentifier) })
+                    .sorted(by: { newestDate(for: $0) > newestDate(for: $1) })
+                    .first,
+                   isRecentEnough(latest) {
+                    knownRecentPhotoIDs.insert(latest.localIdentifier)
+                    setNewPhoto(latest)
                 }
             } else {
                 recentImageFetchResult = fetchRecentImageAssets()
+                knownRecentPhotoIDs = Set(recentImageFetchResult?.objects().map(\.localIdentifier) ?? [])
             }
-
-            appendEvent(title: "Photos changed", detail: "Tap Scan Latest Photo to process the latest visible image.")
         }
     }
 
@@ -108,30 +185,108 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         pendingUnknownImageData = nil
     }
 
-    private func newestUnprocessedImageAsset() -> PHAsset? {
-        let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
+    func deleteRecognitionRun(id: UUID) {
+        recognitionRuns.removeAll { $0.id == id }
+        saveRecognitionRuns()
+    }
 
-        while !pendingInsertedPhotoIDs.isEmpty {
-            let assetID = pendingInsertedPhotoIDs.removeLast()
-            if processedIDs.contains(assetID) {
-                continue
+    func deleteAllRecognitionRuns() {
+        recognitionRuns = []
+        saveRecognitionRuns()
+    }
+
+    func updatePersonInHistory(_ person: Person) {
+        var didChange = false
+        recognitionRuns = recognitionRuns.map { run in
+            guard run.result.person?.id == person.id else {
+                return run
             }
-            if let asset = fetchAsset(id: assetID) {
-                return asset
+            didChange = true
+            return run.replacingPerson(person)
+        }
+
+        if lastResult?.person?.id == person.id {
+            lastResult = lastResult?.replacingPerson(person)
+        }
+
+        if didChange {
+            saveRecognitionRuns()
+        }
+    }
+
+    func removePersonFromHistory(personID: String) {
+        var didChange = false
+        recognitionRuns = recognitionRuns.map { run in
+            guard run.result.person?.id == personID else {
+                return run
+            }
+            didChange = true
+            return run.removingPerson()
+        }
+
+        if lastResult?.person?.id == personID {
+            lastResult = lastResult?.removingPerson()
+        }
+
+        if didChange {
+            saveRecognitionRuns()
+        }
+    }
+
+    func syncHistory(with people: [Person]) {
+        let peopleByID = Dictionary(uniqueKeysWithValues: people.map { ($0.id, $0) })
+        var didChange = false
+
+        recognitionRuns = recognitionRuns.map { run in
+            guard let personID = run.result.person?.id else {
+                return run
+            }
+            if let person = peopleByID[personID] {
+                if run.result.person != person {
+                    didChange = true
+                    return run.replacingPerson(person)
+                }
+                return run
+            }
+
+            didChange = true
+            return run.removingPerson()
+        }
+
+        if let personID = lastResult?.person?.id {
+            if let person = peopleByID[personID] {
+                if lastResult?.person != person {
+                    lastResult = lastResult?.replacingPerson(person)
+                }
+            } else {
+                lastResult = lastResult?.removingPerson()
             }
         }
 
-        let assets = fetchRecentImageAssets()
-        recentImageFetchResult = assets
-        return assets.objects()
-            .filter { !processedIDs.contains($0.localIdentifier) }
-            .sorted { newestDate(for: $0) > newestDate(for: $1) }
-            .first
+        if didChange {
+            saveRecognitionRuns()
+        }
+    }
+
+    private func newestUnprocessedImageAsset() -> PHAsset? {
+        let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
+
+        if let latestInsertedPhotoID,
+           !processedIDs.contains(latestInsertedPhotoID),
+           let asset = fetchAsset(id: latestInsertedPhotoID) {
+                return asset
+        }
+
+        return nil
     }
 
     private func fetchRecentImageAssets() -> PHFetchResult<PHAsset> {
         let options = PHFetchOptions()
         options.predicate = NSPredicate(format: "mediaType == %d", PHAssetMediaType.image.rawValue)
+        options.sortDescriptors = [
+            NSSortDescriptor(key: "modificationDate", ascending: false),
+            NSSortDescriptor(key: "creationDate", ascending: false),
+        ]
         options.fetchLimit = 50
 
         let collections = PHAssetCollection.fetchAssetCollections(
@@ -144,7 +299,6 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             return PHAsset.fetchAssets(in: recentlyAdded, options: options)
         }
 
-        options.sortDescriptors = [NSSortDescriptor(key: "modificationDate", ascending: false)]
         return PHAsset.fetchAssets(with: .image, options: options)
     }
 
@@ -189,15 +343,31 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         asset.modificationDate ?? asset.creationDate ?? .distantPast
     }
 
-    private func photoDetail(for asset: PHAsset) -> String {
-        let created = asset.creationDate.map { Self.dateFormatter.string(from: $0) } ?? "unknown"
-        let modified = asset.modificationDate.map { Self.dateFormatter.string(from: $0) } ?? "unknown"
-        return "Created: \(created). Modified: \(modified)."
+    private func setNewPhoto(_ asset: PHAsset) {
+        latestInsertedPhotoID = asset.localIdentifier
+        pendingPhotoIdentifier = asset.localIdentifier
+        hasNewPhoto = true
+        lastScanMessage = nil
+        scanIssue = nil
     }
 
-    private func appendEvent(title: String, detail: String) {
-        events.insert(AppEvent(title: title, detail: detail), at: 0)
-        events = Array(events.prefix(20))
+    private func refreshForRecentUnprocessedPhoto() {
+        let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
+        let latest = fetchRecentImageAssets()
+            .objects()
+            .filter { !processedIDs.contains($0.localIdentifier) }
+            .filter { isRecentEnough($0) }
+            .sorted { newestDate(for: $0) > newestDate(for: $1) }
+            .first
+
+        if let latest {
+            setNewPhoto(latest)
+        }
+    }
+
+    private func isRecentEnough(_ asset: PHAsset) -> Bool {
+        let candidateDate = asset.creationDate ?? asset.modificationDate ?? .distantPast
+        return Date().timeIntervalSince(candidateDate) <= Self.newPhotoWindowSeconds
     }
 
     private func formattedDistance(_ distance: Double?) -> String {
@@ -207,12 +377,34 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         return String(format: "%.3f", distance)
     }
 
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .medium
-        return formatter
-    }()
+    private func scanSummary(for response: RecognitionResponse) -> String {
+        switch response.status {
+        case .recognized:
+            guard let person = response.person else {
+                return "Recognized a saved person."
+            }
+            return "Recognized \(person.name). Distance: \(formattedDistance(response.distance))."
+        case .unknown:
+            return "Unknown person. Create a profile to save this face."
+        }
+    }
+
+    private func saveRecognitionRuns() {
+        guard let data = try? JSONEncoder().encode(recognitionRuns) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: "recognitionRuns")
+    }
+
+    private static func loadRecognitionRuns() -> [RecognitionRun] {
+        guard let data = UserDefaults.standard.data(forKey: "recognitionRuns"),
+              let runs = try? JSONDecoder().decode([RecognitionRun].self, from: data) else {
+            return []
+        }
+        return Array(runs.prefix(50))
+    }
+
+    private static let newPhotoWindowSeconds: TimeInterval = 60 * 60 * 12
 }
 
 private extension PHFetchResult where ObjectType == PHAsset {

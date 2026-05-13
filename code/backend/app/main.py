@@ -49,6 +49,16 @@ def create_app(
             raise HTTPException(status_code=404, detail="Person not found")
         return person
 
+    @app.get("/people/{person_id}/reference-image")
+    def get_reference_image(person_id: str) -> Response:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+
+        image_bytes = app.state.db.get_reference_image(person_id)
+        if image_bytes is None:
+            raise HTTPException(status_code=404, detail="Reference image not found")
+        return Response(content=image_bytes, media_type="image/jpeg")
+
     @app.post("/people", response_model=Person)
     async def create_person(
         name: str = Form(...),
@@ -60,7 +70,11 @@ def create_app(
         if not result.encodings:
             raise HTTPException(status_code=400, detail="No face detected in image")
 
-        person = app.state.db.create_person(name=name, description=description)
+        person = app.state.db.create_person(
+            name=name,
+            description=description,
+            reference_image=image_bytes,
+        )
         app.state.db.add_face_encoding(person["id"], result.encodings[0])
         return person
 

@@ -33,7 +33,8 @@ class Database:
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     description TEXT NOT NULL,
-                    created_at TEXT NOT NULL
+                    created_at TEXT NOT NULL,
+                    reference_image BLOB
                 );
 
                 CREATE TABLE IF NOT EXISTS face_encodings(
@@ -45,17 +46,23 @@ class Database:
                 );
                 """
             )
+            columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(people)").fetchall()
+            }
+            if "reference_image" not in columns:
+                connection.execute("ALTER TABLE people ADD COLUMN reference_image BLOB")
 
-    def create_person(self, name: str, description: str) -> dict:
+    def create_person(self, name: str, description: str, reference_image: bytes | None = None) -> dict:
         person_id = str(uuid.uuid4())
         created_at = _now()
         with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO people(id, name, description, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO people(id, name, description, created_at, reference_image)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (person_id, name, description, created_at),
+                (person_id, name, description, created_at, reference_image),
             )
         return {
             "id": person_id,
@@ -85,6 +92,20 @@ class Database:
                 (person_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def get_reference_image(self, person_id: str) -> bytes | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT reference_image
+                FROM people
+                WHERE id = ?
+                """,
+                (person_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return row["reference_image"]
 
     def update_person(self, person_id: str, name: str, description: str) -> dict | None:
         with self.connect() as connection:
