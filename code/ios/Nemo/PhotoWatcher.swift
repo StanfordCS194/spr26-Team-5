@@ -23,6 +23,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
     override init() {
         recognitionRuns = Self.loadRecognitionRuns()
+        UserDefaults.standard.removeObject(forKey: Self.legacyRecognitionRunsStorageKey)
         super.init()
     }
 
@@ -44,9 +45,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         guard !isObserving else {
             return
         }
-        recentImageFetchResult = fetchRecentImageAssets()
-        knownRecentPhotoIDs = Set(recentImageFetchResult?.objects().map(\.localIdentifier) ?? [])
-        refreshForRecentUnprocessedPhoto()
+        snapshotCurrentPhotoState()
         PHPhotoLibrary.shared().register(self)
         isObserving = true
     }
@@ -72,11 +71,6 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
         if let latest = newAssets.first {
             setNewPhoto(latest)
-            return
-        }
-
-        if latestInsertedPhotoID == nil {
-            refreshForRecentUnprocessedPhoto()
         }
     }
 
@@ -100,8 +94,17 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
                 return
             }
 
-            let imageData = try await jpegData(for: asset)
-            lastScannedImageData = imageData
+            let imageData = try await jpegData(
+                for: asset,
+                targetSize: Self.scanImageTargetSize,
+                compressionQuality: 0.84
+            )
+            let thumbnailData = try await jpegData(
+                for: asset,
+                targetSize: Self.historyThumbnailTargetSize,
+                compressionQuality: 0.72
+            )
+            lastScannedImageData = thumbnailData
             let response: RecognitionResponse
             do {
                 response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
@@ -126,7 +129,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             lastScanMessage = scanSummary(for: response)
             recognitionRuns.insert(
                 RecognitionRun(
-                    imageData: imageData,
+                    thumbnailData: thumbnailData,
                     result: response,
                     photoCreatedAt: asset.creationDate,
                     photoModifiedAt: asset.modificationDate
@@ -167,6 +170,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
                 let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
                 if let latest = changeDetails.changedObjects
+                    .filter({ knownRecentPhotoIDs.contains($0.localIdentifier) })
                     .filter({ !processedIDs.contains($0.localIdentifier) })
                     .sorted(by: { newestDate(for: $0) > newestDate(for: $1) })
                     .first,
@@ -307,28 +311,47 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         return assets.firstObject
     }
 
-    private func jpegData(for asset: PHAsset) async throws -> Data {
+    private func jpegData(for asset: PHAsset, targetSize: CGSize, compressionQuality: CGFloat) async throws -> Data {
         try await withCheckedThrowingContinuation { continuation in
             let options = PHImageRequestOptions()
             options.deliveryMode = .highQualityFormat
             options.isNetworkAccessAllowed = true
             options.isSynchronous = false
+            options.resizeMode = .fast
+
+            var didResume = false
+
+            func resumeOnce(_ result: Result<Data, Error>) {
+                guard !didResume else {
+                    return
+                }
+                didResume = true
+                switch result {
+                case let .success(data):
+                    continuation.resume(returning: data)
+                case let .failure(error):
+                    continuation.resume(throwing: error)
+                }
+            }
 
             PHImageManager.default().requestImage(
                 for: asset,
-                targetSize: PHImageManagerMaximumSize,
+                targetSize: targetSize,
                 contentMode: .aspectFit,
                 options: options
             ) { image, info in
+                if let isDegraded = info?[PHImageResultIsDegradedKey] as? Bool, isDegraded {
+                    return
+                }
                 if let error = info?[PHImageErrorKey] as? Error {
-                    continuation.resume(throwing: error)
+                    resumeOnce(.failure(error))
                     return
                 }
-                guard let data = image?.jpegData(compressionQuality: 0.86) else {
-                    continuation.resume(throwing: PhotoWatcherError.imageConversionFailed)
+                guard let data = image?.jpegData(compressionQuality: compressionQuality) else {
+                    resumeOnce(.failure(PhotoWatcherError.imageConversionFailed))
                     return
                 }
-                continuation.resume(returning: data)
+                resumeOnce(.success(data))
             }
         }
     }
@@ -351,18 +374,13 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         scanIssue = nil
     }
 
-    private func refreshForRecentUnprocessedPhoto() {
-        let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
-        let latest = fetchRecentImageAssets()
-            .objects()
-            .filter { !processedIDs.contains($0.localIdentifier) }
-            .filter { isRecentEnough($0) }
-            .sorted { newestDate(for: $0) > newestDate(for: $1) }
-            .first
-
-        if let latest {
-            setNewPhoto(latest)
-        }
+    private func snapshotCurrentPhotoState() {
+        let assets = fetchRecentImageAssets()
+        recentImageFetchResult = assets
+        knownRecentPhotoIDs = Set(assets.objects().map(\.localIdentifier))
+        latestInsertedPhotoID = nil
+        pendingPhotoIdentifier = nil
+        hasNewPhoto = false
     }
 
     private func isRecentEnough(_ asset: PHAsset) -> Bool {
@@ -393,11 +411,11 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         guard let data = try? JSONEncoder().encode(recognitionRuns) else {
             return
         }
-        UserDefaults.standard.set(data, forKey: "recognitionRuns")
+        UserDefaults.standard.set(data, forKey: Self.recognitionRunsStorageKey)
     }
 
     private static func loadRecognitionRuns() -> [RecognitionRun] {
-        guard let data = UserDefaults.standard.data(forKey: "recognitionRuns"),
+        guard let data = UserDefaults.standard.data(forKey: recognitionRunsStorageKey),
               let runs = try? JSONDecoder().decode([RecognitionRun].self, from: data) else {
             return []
         }
@@ -405,6 +423,10 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     }
 
     private static let newPhotoWindowSeconds: TimeInterval = 60 * 60 * 12
+    private static let scanImageTargetSize = CGSize(width: 1600, height: 1600)
+    private static let historyThumbnailTargetSize = CGSize(width: 360, height: 360)
+    private static let recognitionRunsStorageKey = "recognitionRuns.v2"
+    private static let legacyRecognitionRunsStorageKey = "recognitionRuns"
 }
 
 private extension PHFetchResult where ObjectType == PHAsset {

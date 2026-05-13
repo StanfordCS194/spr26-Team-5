@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000000000000000000001 /* FaceRecallApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* FaceRecallApp.swift */; };
+		A10000000000000000000001 /* NemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* NemoApp.swift */; };
 		A10000000000000000000002 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* Models.swift */; };
 		A10000000000000000000003 /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* APIClient.swift */; };
 		A10000000000000000000004 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* NotificationManager.swift */; };
@@ -18,7 +18,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A20000000000000000000001 /* FaceRecallApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceRecallApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000001 /* NemoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NemoApp.swift; sourceTree = "<group>"; };
 		A20000000000000000000002 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		A20000000000000000000003 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
 		A20000000000000000000004 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
@@ -27,7 +27,7 @@
 		A20000000000000000000007 /* Views/CreatePersonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/CreatePersonView.swift; sourceTree = "<group>"; };
 		A20000000000000000000008 /* Views/PersonDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PersonDetailView.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A20000000000000000000010 /* FaceRecall.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FaceRecall.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000010 /* Nemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,29 +44,29 @@
 		A40000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
-				A40000000000000000000002 /* FaceRecall */,
+				A40000000000000000000002 /* Nemo */,
 				A40000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		A40000000000000000000002 /* FaceRecall */ = {
+		A40000000000000000000002 /* Nemo */ = {
 			isa = PBXGroup;
 			children = (
 				A20000000000000000000009 /* Info.plist */,
-				A20000000000000000000001 /* FaceRecallApp.swift */,
+				A20000000000000000000001 /* NemoApp.swift */,
 				A20000000000000000000002 /* Models.swift */,
 				A20000000000000000000003 /* APIClient.swift */,
 				A20000000000000000000004 /* NotificationManager.swift */,
 				A20000000000000000000005 /* PhotoWatcher.swift */,
 				A40000000000000000000004 /* Views */,
 			);
-			path = FaceRecall;
+			path = Nemo;
 			sourceTree = "<group>";
 		};
 		A40000000000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A20000000000000000000010 /* FaceRecall.app */,
+				A20000000000000000000010 /* Nemo.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -84,9 +84,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A50000000000000000000001 /* FaceRecall */ = {
+		A50000000000000000000001 /* Nemo */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A90000000000000000000002 /* Build configuration list for PBXNativeTarget "FaceRecall" */;
+			buildConfigurationList = A90000000000000000000002 /* Build configuration list for PBXNativeTarget "Nemo" */;
 			buildPhases = (
 				A70000000000000000000001 /* Sources */,
 				A30000000000000000000001 /* Frameworks */,
@@ -96,9 +96,9 @@
 			);
 			dependencies = (
 			);
-			name = FaceRecall;
-			productName = FaceRecall;
-			productReference = A20000000000000000000010 /* FaceRecall.app */;
+			name = Nemo;
+			productName = Nemo;
+			productReference = A20000000000000000000010 /* Nemo.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -116,7 +116,7 @@
 					};
 				};
 			};
-			buildConfigurationList = A90000000000000000000001 /* Build configuration list for PBXProject "FaceRecall" */;
+			buildConfigurationList = A90000000000000000000001 /* Build configuration list for PBXProject "Nemo" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -129,7 +129,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A50000000000000000000001 /* FaceRecall */,
+				A50000000000000000000001 /* Nemo */,
 			);
 		};
 /* End PBXProject section */
@@ -149,7 +149,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000001 /* FaceRecallApp.swift in Sources */,
+				A10000000000000000000001 /* NemoApp.swift in Sources */,
 				A10000000000000000000002 /* Models.swift in Sources */,
 				A10000000000000000000003 /* APIClient.swift in Sources */,
 				A10000000000000000000004 /* NotificationManager.swift in Sources */,
@@ -285,13 +285,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = B47566L454;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = FaceRecall/Info.plist;
+				INFOPLIST_FILE = Nemo/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.cs194w.FaceRecall;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cs194w.Nemo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -307,13 +307,13 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = B47566L454;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = FaceRecall/Info.plist;
+				INFOPLIST_FILE = Nemo/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.cs194w.FaceRecall;
+				PRODUCT_BUNDLE_IDENTIFIER = com.cs194w.Nemo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -324,7 +324,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A90000000000000000000001 /* Build configuration list for PBXProject "FaceRecall" */ = {
+		A90000000000000000000001 /* Build configuration list for PBXProject "Nemo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A91000000000000000000001 /* Debug */,
@@ -333,7 +333,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A90000000000000000000002 /* Build configuration list for PBXNativeTarget "FaceRecall" */ = {
+		A90000000000000000000002 /* Build configuration list for PBXNativeTarget "Nemo" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				A92000000000000000000001 /* Debug */,

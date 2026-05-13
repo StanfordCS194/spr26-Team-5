@@ -226,9 +226,9 @@ private struct NewPhotoStatusView: View {
 
     private var subtitle: String {
         if isProcessing {
-            return "FaceRecall is sending the newest photo to the backend."
+            return "Nemo is sending the newest photo to the backend."
         }
-        return hasNewPhoto ? "A recent Photos change was detected and will scan automatically." : "Take or import a photo. The app scans automatically when it appears."
+        return hasNewPhoto ? "A recent Photos change was detected and will scan automatically." : "Open Nemo, then take or import a photo to scan it."
     }
 
     private var tint: Color {
@@ -400,16 +400,7 @@ private struct HistoryTabView: View {
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(recentRuns) { run in
-                            NavigationLink {
-                                RecognitionRunDetailView(
-                                    run: run,
-                                    onDelete: {
-                                        onDeleteRun(run.id)
-                                    }
-                                )
-                            } label: {
-                                RecognitionRunRow(run: run)
-                            }
+                            RecognitionRunRow(run: run)
                             .swipeActions {
                                 Button(role: .destructive) {
                                     onDeleteRun(run.id)
@@ -465,16 +456,7 @@ private struct AllRecognitionRunsView: View {
     var body: some View {
         List {
             ForEach(runs) { run in
-                NavigationLink {
-                    RecognitionRunDetailView(
-                        run: run,
-                        onDelete: {
-                            onDeleteRun(run.id)
-                        }
-                    )
-                } label: {
-                    RecognitionRunRow(run: run)
-                }
+                RecognitionRunRow(run: run)
                 .swipeActions {
                     Button(role: .destructive) {
                         onDeleteRun(run.id)
@@ -502,7 +484,7 @@ private struct RecognitionRunRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            if let image = UIImage(data: run.imageData) {
+            if let image = UIImage(data: run.thumbnailData) {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
@@ -516,6 +498,14 @@ private struct RecognitionRunRow: View {
                 Text(Self.dateFormatter.string(from: run.createdAt))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text("Faces \(run.result.faceCount)")
+                    if let distance = run.result.distance {
+                        Text("Distance \(String(format: "%.3f", distance))")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.tertiary)
             }
 
             Spacer()
@@ -527,54 +517,6 @@ private struct RecognitionRunRow: View {
         let formatter = DateFormatter()
         formatter.dateStyle = .short
         formatter.timeStyle = .short
-        return formatter
-    }()
-}
-
-private struct RecognitionRunDetailView: View {
-    let run: RecognitionRun
-    let onDelete: () -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        List {
-            Section {
-                PhotoPreview(imageData: run.imageData)
-            }
-
-            Section("Result") {
-                RecognitionResultView(result: run.result)
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-            }
-
-            Section("Timing") {
-                Text("Scanned: \(Self.dateFormatter.string(from: run.createdAt))")
-                if let photoCreatedAt = run.photoCreatedAt {
-                    Text("Photo created: \(Self.dateFormatter.string(from: photoCreatedAt))")
-                }
-                if let photoModifiedAt = run.photoModifiedAt {
-                    Text("Photo modified: \(Self.dateFormatter.string(from: photoModifiedAt))")
-                }
-            }
-
-            Section {
-                Button(role: .destructive) {
-                    onDelete()
-                    dismiss()
-                } label: {
-                    Label("Delete This Run", systemImage: "trash")
-                }
-            }
-        }
-        .navigationTitle("Recognition Run")
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .medium
         return formatter
     }()
 }
