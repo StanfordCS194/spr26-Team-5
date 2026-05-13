@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 
 from .db import Database
 from .recognition import (
@@ -14,7 +14,7 @@ from .recognition import (
     Recognizer,
     face_distance,
 )
-from .schemas import HealthResponse, Person, RecognitionResponse
+from .schemas import HealthResponse, Person, PersonUpdate, RecognitionResponse
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "face_recall.sqlite"
 DEFAULT_DISTANCE_THRESHOLD = 0.6
@@ -63,6 +63,29 @@ def create_app(
         person = app.state.db.create_person(name=name, description=description)
         app.state.db.add_face_encoding(person["id"], result.encodings[0])
         return person
+
+    @app.patch("/people/{person_id}", response_model=Person)
+    def update_person(person_id: str, update: PersonUpdate) -> dict:
+        name = update.name.strip()
+        description = update.description.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Name cannot be empty")
+
+        person = app.state.db.update_person(
+            person_id=person_id,
+            name=name,
+            description=description,
+        )
+        if person is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        return person
+
+    @app.delete("/people/{person_id}", status_code=204)
+    def delete_person(person_id: str) -> Response:
+        deleted = app.state.db.delete_person(person_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Person not found")
+        return Response(status_code=204)
 
     @app.post("/recognize", response_model=RecognitionResponse)
     async def recognize(file: UploadFile = File(...)) -> RecognitionResponse:

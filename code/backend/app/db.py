@@ -86,6 +86,47 @@ class Database:
             ).fetchone()
         return dict(row) if row else None
 
+    def update_person(self, person_id: str, name: str, description: str) -> dict | None:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE people
+                SET name = ?, description = ?
+                WHERE id = ?
+                """,
+                (name, description, person_id),
+            )
+            if cursor.rowcount == 0:
+                return None
+
+            row = connection.execute(
+                """
+                SELECT id, name, description, created_at
+                FROM people
+                WHERE id = ?
+                """,
+                (person_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_person(self, person_id: str) -> bool:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                DELETE FROM face_encodings
+                WHERE person_id = ?
+                """,
+                (person_id,),
+            )
+            cursor = connection.execute(
+                """
+                DELETE FROM people
+                WHERE id = ?
+                """,
+                (person_id,),
+            )
+        return cursor.rowcount > 0
+
     def list_people(self) -> list[dict]:
         with self.connect() as connection:
             rows = connection.execute(
