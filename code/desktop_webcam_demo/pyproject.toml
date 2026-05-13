@@ -1,0 +1,18 @@
+[project]
+name = "face-recall-desktop-webcam"
+version = "0.1.0"
+description = "Desktop webcam prototype for the FaceRecall backend."
+requires-python = ">=3.11"
+dependencies = [
+    "opencv-python==4.10.0.84",
+    "requests==2.32.3",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.4",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
