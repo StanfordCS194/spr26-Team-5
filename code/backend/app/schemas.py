@@ -6,6 +6,7 @@ class Person(BaseModel):
     name: str
     description: str
     created_at: str
+    last_seen: str | None = None
 
 
 class PersonUpdate(BaseModel):

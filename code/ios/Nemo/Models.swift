@@ -9,12 +9,23 @@ struct Person: Codable, Identifiable, Equatable {
     let name: String
     let description: String
     let createdAt: String
+    let lastSeen: String?
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
         case description
         case createdAt = "created_at"
+        case lastSeen = "last_seen"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        description = try c.decode(String.self, forKey: .description)
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        lastSeen = try c.decodeIfPresent(String.self, forKey: .lastSeen)
     }
 }
 
