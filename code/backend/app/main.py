@@ -122,6 +122,8 @@ def create_app(
             )
 
         person, distance = best
+        app.state.db.update_last_seen(person["id"])
+        person = app.state.db.get_person(person["id"])
         return RecognitionResponse(
             status="recognized",
             person=Person(**person),

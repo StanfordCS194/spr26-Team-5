@@ -360,6 +360,11 @@ private struct RecognitionResultView: View {
                     .font(.title3.weight(.semibold))
                 Text(person.description.isEmpty ? "No description." : person.description)
                     .foregroundStyle(.secondary)
+                if let lastSeen = person.lastSeen {
+                    Text("Last seen: \(formattedLastSeen(lastSeen))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Text("No matching person found.")
                     .foregroundStyle(.secondary)
@@ -727,6 +732,11 @@ private struct PeopleDatabaseView: View {
                                         .font(.caption)
                                         .foregroundStyle(.tertiary)
                                         .lineLimit(1)
+                                    if let lastSeen = person.lastSeen {
+                                        Text("Last seen: \(formattedLastSeen(lastSeen))")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
@@ -835,6 +845,10 @@ private struct PersonDatabaseEditor: View {
                     .foregroundStyle(.secondary)
                 Text("Created: \(person.createdAt)")
                     .foregroundStyle(.secondary)
+                if let lastSeen = person.lastSeen {
+                    Text("Last seen: \(formattedLastSeen(lastSeen))")
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Section("Editable Fields") {
@@ -924,4 +938,16 @@ private struct PersonDatabaseEditor: View {
             errorMessage = error.localizedDescription
         }
     }
+}
+
+private func formattedLastSeen(_ isoString: String) -> String {
+    var formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let date = formatter.date(from: isoString) ?? ISO8601DateFormatter().date(from: isoString)
+    guard let date else { return isoString }
+    let hours = Int(Date().timeIntervalSince(date) / 3600)
+    if hours < 1 { return "just now" }
+    if hours < 24 { return "\(hours)h ago" }
+    let days = hours / 24
+    return days == 1 ? "yesterday" : "\(days) days ago"
 }

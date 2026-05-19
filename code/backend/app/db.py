@@ -34,7 +34,8 @@ class Database:
                     name TEXT NOT NULL,
                     description TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    reference_image BLOB
+                    reference_image BLOB,
+                    last_seen TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS face_encodings(
@@ -52,6 +53,8 @@ class Database:
             }
             if "reference_image" not in columns:
                 connection.execute("ALTER TABLE people ADD COLUMN reference_image BLOB")
+            if "last_seen" not in columns:
+                connection.execute("ALTER TABLE people ADD COLUMN last_seen TEXT")
 
     def create_person(self, name: str, description: str, reference_image: bytes | None = None) -> dict:
         person_id = str(uuid.uuid4())
@@ -69,6 +72,7 @@ class Database:
             "name": name,
             "description": description,
             "created_at": created_at,
+            "last_seen": None,
         }
 
     def add_face_encoding(self, person_id: str, encoding: list[float]) -> None:
@@ -85,7 +89,7 @@ class Database:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, name, description, created_at
+                SELECT id, name, description, created_at, last_seen
                 FROM people
                 WHERE id = ?
                 """,
@@ -122,7 +126,7 @@ class Database:
 
             row = connection.execute(
                 """
-                SELECT id, name, description, created_at
+                SELECT id, name, description, created_at, last_seen
                 FROM people
                 WHERE id = ?
                 """,
@@ -152,12 +156,19 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, name, description, created_at
+                SELECT id, name, description, created_at, last_seen
                 FROM people
                 ORDER BY created_at DESC
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def update_last_seen(self, person_id: str) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                "UPDATE people SET last_seen = ? WHERE id = ?",
+                (_now(), person_id),
+            )
 
     def list_encodings(self) -> list[StoredEncoding]:
         with self.connect() as connection:
