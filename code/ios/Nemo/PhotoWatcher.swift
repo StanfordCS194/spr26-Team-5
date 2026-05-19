@@ -15,6 +15,8 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     @Published var pendingPhotoIdentifier: String?
     @Published var recognitionRuns: [RecognitionRun] = []
 
+    var onRecognitionResult: ((RecognitionResponse) -> Void)?
+
     private let apiClient = APIClient()
     private var isObserving = false
     private var recentImageFetchResult: PHFetchResult<PHAsset>?
@@ -122,6 +124,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
             markProcessed(asset)
             lastResult = response
+            onRecognitionResult?(response)
             hasNewPhoto = false
             latestInsertedPhotoID = nil
             pendingPhotoIdentifier = nil

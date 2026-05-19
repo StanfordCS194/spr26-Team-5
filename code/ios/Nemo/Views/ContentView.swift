@@ -5,9 +5,11 @@ import UserNotifications
 
 struct ContentView: View {
     @EnvironmentObject private var notifications: NotificationManager
+    @EnvironmentObject private var speechManager: SpeechManager
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var photoWatcher = PhotoWatcher()
     @AppStorage("backendURL") private var backendURL = "http://127.0.0.1:8000"
+    @AppStorage("ttsEnabled") private var ttsEnabled = true
 
     @State private var selectedTab = 0
     @State private var selectedPersonID: String?
@@ -56,6 +58,7 @@ struct ContentView: View {
 
             SettingsTabView(
                 backendURL: $backendURL,
+                ttsEnabled: $ttsEnabled,
                 photoAuthorizationStatus: photoWatcher.photoAuthorizationStatus,
                 notificationAuthorizationStatus: notifications.authorizationStatus,
                 healthStatus: healthStatus,
@@ -94,6 +97,10 @@ struct ContentView: View {
         }
         .onAppear {
             photoWatcher.startObservingIfAllowed()
+            photoWatcher.onRecognitionResult = { response in
+                guard ttsEnabled else { return }
+                speechManager.speak(Self.speechText(for: response))
+            }
             Task {
                 await autoScanIfNeeded()
             }
@@ -102,6 +109,10 @@ struct ContentView: View {
             if phase == .active {
                 photoWatcher.startObservingIfAllowed()
                 photoWatcher.refreshForPhotoChanges()
+                photoWatcher.onRecognitionResult = { response in
+                    guard ttsEnabled else { return }
+                    speechManager.speak(Self.speechText(for: response))
+                }
                 Task {
                     await autoScanIfNeeded()
                 }
@@ -148,6 +159,16 @@ struct ContentView: View {
             return
         }
         await photoWatcher.scanLatestPhoto(baseURL: backendURL, notifications: notifications)
+    }
+
+    private static func speechText(for response: RecognitionResponse) -> String {
+        switch response.status {
+        case .recognized:
+            guard let person = response.person else { return "Person recognized." }
+            return person.description.isEmpty ? "This is \(person.name)." : "This is \(person.name). \(person.description)"
+        case .unknown:
+            return "Unknown person detected."
+        }
     }
 }
 
@@ -356,6 +377,15 @@ private struct RecognitionResultView: View {
             }
 
             if let person = result.person {
+                if !person.relationship.isEmpty {
+                    Text(person.relationship.capitalized)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Color.green)
+                        .clipShape(Capsule())
+                }
                 Text(person.name)
                     .font(.title3.weight(.semibold))
                 Text(person.description.isEmpty ? "No description." : person.description)
@@ -523,6 +553,7 @@ private struct RecognitionRunRow: View {
 
 private struct SettingsTabView: View {
     @Binding var backendURL: String
+    @Binding var ttsEnabled: Bool
     let photoAuthorizationStatus: PHAuthorizationStatus
     let notificationAuthorizationStatus: UNAuthorizationStatus
     let healthStatus: String
@@ -534,6 +565,10 @@ private struct SettingsTabView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Accessibility") {
+                    Toggle("Speak Recognition Results", isOn: $ttsEnabled)
+                }
+
                 Section("Backend") {
                     TextField("Backend URL", text: $backendURL)
                         .textInputAutocapitalization(.never)
@@ -798,6 +833,10 @@ private struct PersonDatabaseEditor: View {
     @State private var isSaving = false
     @State private var isDeleting = false
     @State private var errorMessage: String?
+    @State private var photoCount: Int = 0
+    @State private var isAddingPhoto = false
+    @State private var showPhotoPicker = false
+    @State private var addPhotoError: String?
 
     private let apiClient = APIClient()
 
@@ -826,6 +865,30 @@ private struct PersonDatabaseEditor: View {
                         size: 180
                     )
                     Spacer()
+                }
+            }
+
+            Section("Training Photos") {
+                HStack {
+                    Text("Saved encodings")
+                    Spacer()
+                    Text("\(photoCount)")
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    showPhotoPicker = true
+                } label: {
+                    if isAddingPhoto {
+                        ProgressView()
+                    } else {
+                        Label("Add Another Photo", systemImage: "photo.badge.plus")
+                    }
+                }
+                .disabled(isAddingPhoto)
+                if let addPhotoError {
+                    Text(addPhotoError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
 
@@ -863,6 +926,12 @@ private struct PersonDatabaseEditor: View {
                     Text(errorMessage)
                         .foregroundStyle(.red)
                 }
+            }
+        }
+        .task { await loadPhotoCount() }
+        .sheet(isPresented: $showPhotoPicker) {
+            PhotoPickerView { imageData in
+                Task { await uploadPhoto(imageData) }
             }
         }
         .navigationTitle("Edit Person")
@@ -922,6 +991,22 @@ private struct PersonDatabaseEditor: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadPhotoCount() async {
+        photoCount = (try? await apiClient.personPhotoCount(id: person.id, baseURL: backendURL)) ?? 0
+    }
+
+    private func uploadPhoto(_ imageData: Data) async {
+        isAddingPhoto = true
+        addPhotoError = nil
+        defer { isAddingPhoto = false }
+        do {
+            try await apiClient.addPersonPhoto(id: person.id, imageData: imageData, baseURL: backendURL)
+            photoCount += 1
+        } catch {
+            addPhotoError = error.localizedDescription
         }
     }
 }

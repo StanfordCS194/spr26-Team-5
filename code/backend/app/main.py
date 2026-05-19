@@ -59,10 +59,28 @@ def create_app(
             raise HTTPException(status_code=404, detail="Reference image not found")
         return Response(content=image_bytes, media_type="image/jpeg")
 
+    @app.post("/people/{person_id}/photos", status_code=204)
+    async def add_person_photo(person_id: str, file: UploadFile = File(...)) -> Response:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        image_bytes = await file.read()
+        result = _encode_or_raise(app.state.recognizer, image_bytes)
+        if not result.encodings:
+            raise HTTPException(status_code=400, detail="No face detected in image")
+        app.state.db.add_face_encoding(person_id, result.encodings[0])
+        return Response(status_code=204)
+
+    @app.get("/people/{person_id}/photo-count")
+    def get_photo_count(person_id: str) -> dict:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        return {"count": app.state.db.get_encoding_count(person_id)}
+
     @app.post("/people", response_model=Person)
     async def create_person(
         name: str = Form(...),
         description: str = Form(""),
+        relationship: str = Form(""),
         file: UploadFile = File(...),
     ) -> dict:
         image_bytes = await file.read()
@@ -73,6 +91,7 @@ def create_app(
         person = app.state.db.create_person(
             name=name,
             description=description,
+            relationship=relationship,
             reference_image=image_bytes,
         )
         app.state.db.add_face_encoding(person["id"], result.encodings[0])
@@ -89,6 +108,7 @@ def create_app(
             person_id=person_id,
             name=name,
             description=description,
+            relationship=update.relationship,
         )
         if person is None:
             raise HTTPException(status_code=404, detail="Person not found")
