@@ -798,6 +798,10 @@ private struct PersonDatabaseEditor: View {
     @State private var isSaving = false
     @State private var isDeleting = false
     @State private var errorMessage: String?
+    @State private var photoCount: Int = 0
+    @State private var isAddingPhoto = false
+    @State private var showPhotoPicker = false
+    @State private var addPhotoError: String?
 
     private let apiClient = APIClient()
 
@@ -826,6 +830,30 @@ private struct PersonDatabaseEditor: View {
                         size: 180
                     )
                     Spacer()
+                }
+            }
+
+            Section("Training Photos") {
+                HStack {
+                    Text("Saved encodings")
+                    Spacer()
+                    Text("\(photoCount)")
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    showPhotoPicker = true
+                } label: {
+                    if isAddingPhoto {
+                        ProgressView()
+                    } else {
+                        Label("Add Another Photo", systemImage: "photo.badge.plus")
+                    }
+                }
+                .disabled(isAddingPhoto)
+                if let addPhotoError {
+                    Text(addPhotoError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
 
@@ -863,6 +891,12 @@ private struct PersonDatabaseEditor: View {
                     Text(errorMessage)
                         .foregroundStyle(.red)
                 }
+            }
+        }
+        .task { await loadPhotoCount() }
+        .sheet(isPresented: $showPhotoPicker) {
+            PhotoPickerView { imageData in
+                Task { await uploadPhoto(imageData) }
             }
         }
         .navigationTitle("Edit Person")
@@ -922,6 +956,22 @@ private struct PersonDatabaseEditor: View {
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func loadPhotoCount() async {
+        photoCount = (try? await apiClient.personPhotoCount(id: person.id, baseURL: backendURL)) ?? 0
+    }
+
+    private func uploadPhoto(_ imageData: Data) async {
+        isAddingPhoto = true
+        addPhotoError = nil
+        defer { isAddingPhoto = false }
+        do {
+            try await apiClient.addPersonPhoto(id: person.id, imageData: imageData, baseURL: backendURL)
+            photoCount += 1
+        } catch {
+            addPhotoError = error.localizedDescription
         }
     }
 }
