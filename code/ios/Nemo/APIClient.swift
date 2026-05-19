@@ -85,6 +85,19 @@ struct APIClient {
         return try await send(request)
     }
 
+    func addPersonPhoto(id: String, imageData: Data, baseURL: String) async throws {
+        var request = try request(path: "/people/\(id)/photos", baseURL: baseURL)
+        request.httpMethod = "POST"
+        request.setMultipartBody(fields: [:], fileField: "file", fileName: "extra_photo.jpg", mimeType: "image/jpeg", data: imageData)
+        try await sendEmpty(request)
+    }
+
+    func personPhotoCount(id: String, baseURL: String) async throws -> Int {
+        let request = try request(path: "/people/\(id)/photo-count", baseURL: baseURL)
+        let result: [String: Int] = try await send(request)
+        return result["count"] ?? 0
+    }
+
     func deletePerson(id: String, baseURL: String) async throws {
         var request = try request(path: "/people/\(id)", baseURL: baseURL)
         request.httpMethod = "DELETE"

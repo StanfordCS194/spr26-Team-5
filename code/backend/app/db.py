@@ -159,6 +159,14 @@ class Database:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_encoding_count(self, person_id: str) -> int:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) as cnt FROM face_encodings WHERE person_id = ?",
+                (person_id,),
+            ).fetchone()
+        return row["cnt"] if row else 0
+
     def list_encodings(self) -> list[StoredEncoding]:
         with self.connect() as connection:
             rows = connection.execute(
