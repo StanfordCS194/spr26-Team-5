@@ -21,7 +21,12 @@ final class NotificationManager: NSObject, ObservableObject, UNUserNotificationC
     func notifyRecognized(person: Person) {
         let content = UNMutableNotificationContent()
         content.title = "Recognized \(person.name)"
-        content.body = person.description.isEmpty ? "Tap to view details." : person.description
+        if !person.relationship.isEmpty {
+            let body = "This is \(person.relationship)." + (person.description.isEmpty ? "" : " \(person.description)")
+            content.body = body.trimmingCharacters(in: .whitespaces)
+        } else {
+            content.body = person.description.isEmpty ? "Tap to view details." : person.description
+        }
         content.sound = .default
         content.userInfo = ["route": "person", "personId": person.id]
         schedule(content: content)

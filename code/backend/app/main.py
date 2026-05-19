@@ -81,6 +81,7 @@ def create_app(
         name: str = Form(...),
         description: str = Form(""),
         relationship: str = Form(""),
+        notes: str = Form(""),
         file: UploadFile = File(...),
     ) -> dict:
         image_bytes = await file.read()
@@ -92,6 +93,7 @@ def create_app(
             name=name,
             description=description,
             relationship=relationship,
+            notes=notes,
             reference_image=image_bytes,
         )
         app.state.db.add_face_encoding(person["id"], result.encodings[0])
@@ -109,6 +111,7 @@ def create_app(
             name=name,
             description=description,
             relationship=update.relationship,
+            notes=update.notes,
         )
         if person is None:
             raise HTTPException(status_code=404, detail="Person not found")

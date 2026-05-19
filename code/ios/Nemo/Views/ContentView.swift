@@ -10,6 +10,7 @@ struct ContentView: View {
     @StateObject private var photoWatcher = PhotoWatcher()
     @AppStorage("backendURL") private var backendURL = "http://127.0.0.1:8000"
     @AppStorage("ttsEnabled") private var ttsEnabled = true
+    @AppStorage("patientMode") private var patientMode = false
 
     @State private var selectedTab = 0
     @State private var selectedPersonID: String?
@@ -21,12 +22,22 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            RecognitionTabView(
-                photoWatcher: photoWatcher,
-                backendURL: backendURL,
-                showingCreatePerson: $showingCreatePerson,
-                notifications: notifications
-            )
+            Group {
+                if patientMode {
+                    PatientModeView(
+                        photoWatcher: photoWatcher,
+                        backendURL: backendURL,
+                        showingCreatePerson: $showingCreatePerson
+                    )
+                } else {
+                    RecognitionTabView(
+                        photoWatcher: photoWatcher,
+                        backendURL: backendURL,
+                        showingCreatePerson: $showingCreatePerson,
+                        notifications: notifications
+                    )
+                }
+            }
             .tabItem {
                 Label("Recognize", systemImage: "camera.viewfinder")
             }
@@ -59,6 +70,7 @@ struct ContentView: View {
             SettingsTabView(
                 backendURL: $backendURL,
                 ttsEnabled: $ttsEnabled,
+                patientMode: $patientMode,
                 photoAuthorizationStatus: photoWatcher.photoAuthorizationStatus,
                 notificationAuthorizationStatus: notifications.authorizationStatus,
                 healthStatus: healthStatus,
@@ -554,6 +566,7 @@ private struct RecognitionRunRow: View {
 private struct SettingsTabView: View {
     @Binding var backendURL: String
     @Binding var ttsEnabled: Bool
+    @Binding var patientMode: Bool
     let photoAuthorizationStatus: PHAuthorizationStatus
     let notificationAuthorizationStatus: UNAuthorizationStatus
     let healthStatus: String
@@ -565,6 +578,14 @@ private struct SettingsTabView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Display Mode") {
+                    Toggle("Patient Mode", isOn: $patientMode)
+                    if patientMode {
+                        Text("Large text, simplified view for easier reading.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+
                 Section("Accessibility") {
                     Toggle("Speak Recognition Results", isOn: $ttsEnabled)
                 }
@@ -830,6 +851,7 @@ private struct PersonDatabaseEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var description: String
+    @State private var relationship: String
     @State private var isSaving = false
     @State private var isDeleting = false
     @State private var errorMessage: String?
@@ -852,6 +874,7 @@ private struct PersonDatabaseEditor: View {
         self.onDeleted = onDeleted
         _name = State(initialValue: person.name)
         _description = State(initialValue: person.description)
+        _relationship = State(initialValue: person.relationship)
     }
 
     var body: some View {
@@ -902,6 +925,7 @@ private struct PersonDatabaseEditor: View {
 
             Section("Editable Fields") {
                 TextField("Name", text: $name)
+                TextField("Relationship", text: $relationship)
                 TextField("Description", text: $description, axis: .vertical)
                     .lineLimit(3...6)
             }
@@ -971,6 +995,7 @@ private struct PersonDatabaseEditor: View {
                 id: person.id,
                 name: trimmedName,
                 description: trimmedDescription,
+                relationship: relationship.trimmingCharacters(in: .whitespacesAndNewlines),
                 baseURL: backendURL
             )
             onSaved(updatedPerson)

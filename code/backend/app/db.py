@@ -35,7 +35,9 @@ class Database:
                     description TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     reference_image BLOB,
-                    relationship TEXT NOT NULL DEFAULT ''
+                    relationship TEXT NOT NULL DEFAULT '',
+                    notes TEXT NOT NULL DEFAULT '',
+                    last_seen TEXT
                 );
 
                 CREATE TABLE IF NOT EXISTS face_encodings(
@@ -55,17 +57,21 @@ class Database:
                 connection.execute("ALTER TABLE people ADD COLUMN reference_image BLOB")
             if "relationship" not in columns:
                 connection.execute("ALTER TABLE people ADD COLUMN relationship TEXT NOT NULL DEFAULT ''")
+            if "last_seen" not in columns:
+                connection.execute("ALTER TABLE people ADD COLUMN last_seen TEXT")
+            if "notes" not in columns:
+                connection.execute("ALTER TABLE people ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
 
-    def create_person(self, name: str, description: str, relationship: str = "", reference_image: bytes | None = None) -> dict:
+    def create_person(self, name: str, description: str, relationship: str = "", notes: str = "", reference_image: bytes | None = None) -> dict:
         person_id = str(uuid.uuid4())
         created_at = _now()
         with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO people(id, name, description, created_at, reference_image, relationship)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO people(id, name, description, created_at, reference_image, relationship, notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (person_id, name, description, created_at, reference_image, relationship),
+                (person_id, name, description, created_at, reference_image, relationship, notes),
             )
         return {
             "id": person_id,
@@ -73,6 +79,8 @@ class Database:
             "description": description,
             "created_at": created_at,
             "relationship": relationship,
+            "notes": notes,
+            "last_seen": None,
         }
 
     def add_face_encoding(self, person_id: str, encoding: list[float]) -> None:
@@ -89,7 +97,7 @@ class Database:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, name, description, created_at, relationship
+                SELECT id, name, description, created_at, relationship, notes, last_seen
                 FROM people
                 WHERE id = ?
                 """,
@@ -111,22 +119,22 @@ class Database:
             return None
         return row["reference_image"]
 
-    def update_person(self, person_id: str, name: str, description: str, relationship: str = "") -> dict | None:
+    def update_person(self, person_id: str, name: str, description: str, relationship: str = "", notes: str = "") -> dict | None:
         with self.connect() as connection:
             cursor = connection.execute(
                 """
                 UPDATE people
-                SET name = ?, description = ?, relationship = ?
+                SET name = ?, description = ?, relationship = ?, notes = ?
                 WHERE id = ?
                 """,
-                (name, description, relationship, person_id),
+                (name, description, relationship, notes, person_id),
             )
             if cursor.rowcount == 0:
                 return None
 
             row = connection.execute(
                 """
-                SELECT id, name, description, created_at, relationship
+                SELECT id, name, description, created_at, relationship, notes, last_seen
                 FROM people
                 WHERE id = ?
                 """,
@@ -156,20 +164,19 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, name, description, created_at, relationship
+                SELECT id, name, description, created_at, relationship, notes, last_seen
                 FROM people
                 ORDER BY created_at DESC
                 """
             ).fetchall()
         return [dict(row) for row in rows]
 
-    def get_encoding_count(self, person_id: str) -> int:
+    def update_last_seen(self, person_id: str) -> None:
         with self.connect() as connection:
-            row = connection.execute(
-                "SELECT COUNT(*) as cnt FROM face_encodings WHERE person_id = ?",
-                (person_id,),
-            ).fetchone()
-        return row["cnt"] if row else 0
+            connection.execute(
+                "UPDATE people SET last_seen = ? WHERE id = ?",
+                (_now(), person_id),
+            )
 
     def list_encodings(self) -> list[StoredEncoding]:
         with self.connect() as connection:

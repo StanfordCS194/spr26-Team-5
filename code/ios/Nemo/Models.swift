@@ -9,18 +9,34 @@ struct Person: Codable, Identifiable, Equatable {
     let name: String
     let description: String
     let createdAt: String
+    let relationship: String
+    let notes: String
 
     enum CodingKeys: String, CodingKey {
         case id
         case name
         case description
         case createdAt = "created_at"
+        case relationship
+        case notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decode(String.self, forKey: .description)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        relationship = try container.decodeIfPresent(String.self, forKey: .relationship) ?? ""
+        notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
     }
 }
 
 struct PersonUpdateRequest: Codable {
     let name: String
     let description: String
+    let relationship: String
+    let notes: String
 }
 
 struct RecognitionResponse: Codable, Equatable {
