@@ -34,7 +34,8 @@ class Database:
                     name TEXT NOT NULL,
                     description TEXT NOT NULL,
                     created_at TEXT NOT NULL,
-                    reference_image BLOB
+                    reference_image BLOB,
+                    notes TEXT NOT NULL DEFAULT ''
                 );
 
                 CREATE TABLE IF NOT EXISTS face_encodings(
@@ -52,23 +53,26 @@ class Database:
             }
             if "reference_image" not in columns:
                 connection.execute("ALTER TABLE people ADD COLUMN reference_image BLOB")
+            if "notes" not in columns:
+                connection.execute("ALTER TABLE people ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
 
-    def create_person(self, name: str, description: str, reference_image: bytes | None = None) -> dict:
+    def create_person(self, name: str, description: str, notes: str = "", reference_image: bytes | None = None) -> dict:
         person_id = str(uuid.uuid4())
         created_at = _now()
         with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO people(id, name, description, created_at, reference_image)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO people(id, name, description, created_at, reference_image, notes)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (person_id, name, description, created_at, reference_image),
+                (person_id, name, description, created_at, reference_image, notes),
             )
         return {
             "id": person_id,
             "name": name,
             "description": description,
             "created_at": created_at,
+            "notes": notes,
         }
 
     def add_face_encoding(self, person_id: str, encoding: list[float]) -> None:
@@ -85,7 +89,7 @@ class Database:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, name, description, created_at
+                SELECT id, name, description, created_at, notes
                 FROM people
                 WHERE id = ?
                 """,
@@ -107,22 +111,22 @@ class Database:
             return None
         return row["reference_image"]
 
-    def update_person(self, person_id: str, name: str, description: str) -> dict | None:
+    def update_person(self, person_id: str, name: str, description: str, notes: str = "") -> dict | None:
         with self.connect() as connection:
             cursor = connection.execute(
                 """
                 UPDATE people
-                SET name = ?, description = ?
+                SET name = ?, description = ?, notes = ?
                 WHERE id = ?
                 """,
-                (name, description, person_id),
+                (name, description, notes, person_id),
             )
             if cursor.rowcount == 0:
                 return None
 
             row = connection.execute(
                 """
-                SELECT id, name, description, created_at
+                SELECT id, name, description, created_at, notes
                 FROM people
                 WHERE id = ?
                 """,
@@ -152,7 +156,7 @@ class Database:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, name, description, created_at
+                SELECT id, name, description, created_at, notes
                 FROM people
                 ORDER BY created_at DESC
                 """

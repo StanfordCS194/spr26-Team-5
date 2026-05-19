@@ -795,6 +795,7 @@ private struct PersonDatabaseEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name: String
     @State private var description: String
+    @State private var notes: String
     @State private var isSaving = false
     @State private var isDeleting = false
     @State private var errorMessage: String?
@@ -813,6 +814,7 @@ private struct PersonDatabaseEditor: View {
         self.onDeleted = onDeleted
         _name = State(initialValue: person.name)
         _description = State(initialValue: person.description)
+        _notes = State(initialValue: person.notes)
     }
 
     var body: some View {
@@ -841,6 +843,11 @@ private struct PersonDatabaseEditor: View {
                 TextField("Name", text: $name)
                 TextField("Description", text: $description, axis: .vertical)
                     .lineLimit(3...6)
+            }
+
+            Section("Caregiver Notes") {
+                TextField("Notes (visible only to caregivers)", text: $notes, axis: .vertical)
+                    .lineLimit(3...8)
             }
 
             Section {
@@ -902,6 +909,7 @@ private struct PersonDatabaseEditor: View {
                 id: person.id,
                 name: trimmedName,
                 description: trimmedDescription,
+                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
                 baseURL: backendURL
             )
             onSaved(updatedPerson)
