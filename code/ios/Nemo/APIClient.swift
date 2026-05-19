@@ -50,11 +50,11 @@ struct APIClient {
         return try await send(request)
     }
 
-    func createPerson(name: String, description: String, imageData: Data, baseURL: String) async throws -> Person {
+    func createPerson(name: String, description: String, relationship: String, imageData: Data, baseURL: String) async throws -> Person {
         var request = try request(path: "/people", baseURL: baseURL)
         request.httpMethod = "POST"
         request.setMultipartBody(
-            fields: ["name": name, "description": description],
+            fields: ["name": name, "description": description, "relationship": relationship],
             fileField: "file",
             fileName: "enrollment.jpg",
             mimeType: "image/jpeg",
@@ -78,11 +78,24 @@ struct APIClient {
         return try await sendOptionalData(request)
     }
 
-    func updatePerson(id: String, name: String, description: String, baseURL: String) async throws -> Person {
+    func updatePerson(id: String, name: String, description: String, relationship: String, baseURL: String) async throws -> Person {
         var request = try request(path: "/people/\(id)", baseURL: baseURL)
         request.httpMethod = "PATCH"
-        request.setJSONBody(PersonUpdateRequest(name: name, description: description))
+        request.setJSONBody(PersonUpdateRequest(name: name, description: description, relationship: relationship))
         return try await send(request)
+    }
+
+    func addPersonPhoto(id: String, imageData: Data, baseURL: String) async throws {
+        var request = try request(path: "/people/\(id)/photos", baseURL: baseURL)
+        request.httpMethod = "POST"
+        request.setMultipartBody(fields: [:], fileField: "file", fileName: "extra_photo.jpg", mimeType: "image/jpeg", data: imageData)
+        try await sendEmpty(request)
+    }
+
+    func personPhotoCount(id: String, baseURL: String) async throws -> Int {
+        let request = try request(path: "/people/\(id)/photo-count", baseURL: baseURL)
+        let result: [String: Int] = try await send(request)
+        return result["count"] ?? 0
     }
 
     func deletePerson(id: String, baseURL: String) async throws {
