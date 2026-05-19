@@ -24,6 +24,12 @@ struct PersonDetailView: View {
                     Text("Created: \(person.createdAt)")
                         .foregroundStyle(.secondary)
                 }
+
+                if !person.notes.isEmpty {
+                    Section("Caregiver Notes") {
+                        Text(person.notes)
+                    }
+                }
             }
 
             if let errorMessage {

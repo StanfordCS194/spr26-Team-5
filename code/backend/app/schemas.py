@@ -6,11 +6,13 @@ class Person(BaseModel):
     name: str
     description: str
     created_at: str
+    notes: str = ""
 
 
 class PersonUpdate(BaseModel):
     name: str
     description: str
+    notes: str = ""
 
 
 class RecognitionResponse(BaseModel):

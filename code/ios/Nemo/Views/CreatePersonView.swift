@@ -8,6 +8,7 @@ struct CreatePersonView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var description = ""
+    @State private var notes = ""
     @State private var errorMessage: String?
     @State private var isSaving = false
 
@@ -20,6 +21,11 @@ struct CreatePersonView: View {
                     TextField("Name", text: $name)
                     TextField("Description", text: $description, axis: .vertical)
                         .lineLimit(3...6)
+                }
+
+                Section("Caregiver Notes") {
+                    TextField("Notes (visible only to caregivers)", text: $notes, axis: .vertical)
+                        .lineLimit(3...8)
                 }
 
                 Section {
@@ -77,6 +83,7 @@ struct CreatePersonView: View {
             let person = try await apiClient.createPerson(
                 name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                 description: description.trimmingCharacters(in: .whitespacesAndNewlines),
+                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
                 imageData: imageData,
                 baseURL: backendURL
             )
