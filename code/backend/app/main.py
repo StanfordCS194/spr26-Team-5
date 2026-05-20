@@ -10,6 +10,7 @@ from .recognition import (
     FaceEncodingResult,
     FaceRecognitionRecognizer,
     InvalidImageError,
+    MockImageRecognizer,
     RecognitionError,
     Recognizer,
     face_distance,
@@ -18,6 +19,7 @@ from .schemas import HealthResponse, Person, PersonUpdate, RecognitionResponse
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "face_recall.sqlite"
 DEFAULT_DISTANCE_THRESHOLD = 0.6
+DEFAULT_MOCK_DISTANCE_THRESHOLD = 2.5
 
 
 def create_app(
@@ -27,11 +29,11 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Nemo Backend")
     app.state.db = Database(db_path or os.environ.get("FACE_DB_PATH", DEFAULT_DB_PATH))
-    app.state.recognizer = recognizer or FaceRecognitionRecognizer()
+    app.state.recognizer = recognizer or default_recognizer()
     app.state.distance_threshold = (
         distance_threshold
         if distance_threshold is not None
-        else float(os.environ.get("FACE_DISTANCE_THRESHOLD", DEFAULT_DISTANCE_THRESHOLD))
+        else default_distance_threshold()
     )
 
     @app.get("/health", response_model=HealthResponse)
@@ -153,6 +155,21 @@ def create_app(
         )
 
     return app
+
+
+def default_recognizer() -> Recognizer:
+    if os.environ.get("NEMO_MOCK_RECOGNITION") == "1":
+        return MockImageRecognizer()
+    return FaceRecognitionRecognizer()
+
+
+def default_distance_threshold() -> float:
+    configured = os.environ.get("FACE_DISTANCE_THRESHOLD")
+    if configured is not None:
+        return float(configured)
+    if os.environ.get("NEMO_MOCK_RECOGNITION") == "1":
+        return DEFAULT_MOCK_DISTANCE_THRESHOLD
+    return DEFAULT_DISTANCE_THRESHOLD
 
 
 def _encode_or_raise(recognizer: Recognizer, image_bytes: bytes) -> FaceEncodingResult:
