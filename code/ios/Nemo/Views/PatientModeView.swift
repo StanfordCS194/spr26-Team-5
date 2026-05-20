@@ -2,8 +2,7 @@ import SwiftUI
 
 struct PatientModeView: View {
     @ObservedObject var photoWatcher: PhotoWatcher
-    let backendURL: String
-    @Binding var showingCreatePerson: Bool
+    let onRetry: () -> Void
 
     var body: some View {
         ZStack {
@@ -56,6 +55,16 @@ struct PatientModeView: View {
             Image(systemName: "questionmark.circle.fill").font(.system(size: 80)).foregroundStyle(.orange)
             Text("Unknown Person").font(.system(size: 48, weight: .bold)).multilineTextAlignment(.center)
             Text("Ask a caregiver for help.").font(.system(size: 26)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button(action: onRetry) {
+                Label("Try Again", systemImage: "arrow.clockwise")
+                    .font(.system(size: 30, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(.orange)
+            .padding(.top, 8)
         }
     }
 

@@ -60,12 +60,15 @@ enum RecognitionStatus: String, Codable {
 
 enum ScanIssue: Equatable {
     case noFaceDetected
+    case backendUnavailable(String)
     case failed(String)
 
     var title: String {
         switch self {
         case .noFaceDetected:
             return "No Face Detected"
+        case .backendUnavailable:
+            return "Backend Unavailable"
         case .failed:
             return "Scan Failed"
         }
@@ -74,9 +77,22 @@ enum ScanIssue: Equatable {
     var message: String {
         switch self {
         case .noFaceDetected:
-            return "The newest photo was scanned, but the backend could not find a face. The app is ready for the next new photo."
+            return "The newest photo was scanned, but no face was visible clearly enough to match."
+        case let .backendUnavailable(message):
+            return message
         case let .failed(message):
             return message
+        }
+    }
+
+    var nextStep: String {
+        switch self {
+        case .noFaceDetected:
+            return "Try again with a closer photo, better lighting, or a clearer face."
+        case .backendUnavailable:
+            return "Open Settings to check the backend URL and connection, then scan again."
+        case .failed:
+            return "Try scanning again. If this keeps happening, check Settings and the backend health."
         }
     }
 }

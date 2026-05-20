@@ -81,7 +81,14 @@ struct APIClient {
     func updatePerson(id: String, name: String, description: String, relationship: String, baseURL: String) async throws -> Person {
         var request = try request(path: "/people/\(id)", baseURL: baseURL)
         request.httpMethod = "PATCH"
-        request.setJSONBody(PersonUpdateRequest(name: name, description: description, relationship: relationship))
+        request.setJSONBody(
+            PersonUpdateRequest(
+                name: name,
+                description: description,
+                relationship: relationship,
+                notes: ""
+            )
+        )
         return try await send(request)
     }
 

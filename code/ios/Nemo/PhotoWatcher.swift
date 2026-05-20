@@ -12,6 +12,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     @Published var pendingUnknownImageData: Data?
     @Published var lastScanMessage: String?
     @Published var scanIssue: ScanIssue?
+    @Published var lastCompletedScanAt: Date?
     @Published var pendingPhotoIdentifier: String?
     @Published var recognitionRuns: [RecognitionRun] = []
 
@@ -96,64 +97,32 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
                 return
             }
 
-            let imageData = try await jpegData(
-                for: asset,
-                targetSize: Self.scanImageTargetSize,
-                compressionQuality: 0.84
-            )
-            let thumbnailData = try await jpegData(
-                for: asset,
-                targetSize: Self.historyThumbnailTargetSize,
-                compressionQuality: 0.72
-            )
-            lastScannedImageData = thumbnailData
-            let response: RecognitionResponse
-            do {
-                response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
-            } catch let error as APIClientError where error.statusCode == 400 && error.message.localizedCaseInsensitiveContains("No face detected") {
-                markProcessed(asset)
-                hasNewPhoto = false
-                latestInsertedPhotoID = nil
-                pendingPhotoIdentifier = nil
-                lastResult = nil
-                pendingUnknownImageData = nil
-                lastScanMessage = nil
-                scanIssue = .noFaceDetected
-                return
-            }
-
-            markProcessed(asset)
-            lastResult = response
-            onRecognitionResult?(response)
-            hasNewPhoto = false
-            latestInsertedPhotoID = nil
-            pendingPhotoIdentifier = nil
-            scanIssue = nil
-            lastScanMessage = scanSummary(for: response)
-            recognitionRuns.insert(
-                RecognitionRun(
-                    thumbnailData: thumbnailData,
-                    result: response,
-                    photoCreatedAt: asset.creationDate,
-                    photoModifiedAt: asset.modificationDate
-                ),
-                at: 0
-            )
-            recognitionRuns = Array(recognitionRuns.prefix(50))
-            saveRecognitionRuns()
-
-            switch response.status {
-            case .recognized:
-                pendingUnknownImageData = nil
-                if let person = response.person {
-                    notifications.notifyRecognized(person: person)
-                }
-            case .unknown:
-                pendingUnknownImageData = imageData
-                notifications.notifyUnknown()
-            }
+            try await scan(asset: asset, markAsProcessed: true, baseURL: baseURL, notifications: notifications)
         } catch {
-            scanIssue = .failed(error.localizedDescription)
+            scanIssue = scanIssue(for: error)
+        }
+    }
+
+    func retryLatestPhoto(baseURL: String, notifications: NotificationManager) async {
+        guard photoAuthorizationStatus == .authorized || photoAuthorizationStatus == .limited else {
+            scanIssue = .failed("Grant Photos access before scanning.")
+            return
+        }
+        guard !isProcessing else {
+            return
+        }
+        guard let asset = fetchRecentImageAssets().firstObject else {
+            scanIssue = .failed("No recent photo is available to try again.")
+            return
+        }
+
+        isProcessing = true
+        defer { isProcessing = false }
+
+        do {
+            try await scan(asset: asset, markAsProcessed: false, baseURL: baseURL, notifications: notifications)
+        } catch {
+            scanIssue = scanIssue(for: error)
         }
     }
 
@@ -312,6 +281,97 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     private func fetchAsset(id: String) -> PHAsset? {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
         return assets.firstObject
+    }
+
+    private func scan(
+        asset: PHAsset,
+        markAsProcessed: Bool,
+        baseURL: String,
+        notifications: NotificationManager
+    ) async throws {
+        let imageData = try await jpegData(
+            for: asset,
+            targetSize: Self.scanImageTargetSize,
+            compressionQuality: 0.84
+        )
+        let thumbnailData = try await jpegData(
+            for: asset,
+            targetSize: Self.historyThumbnailTargetSize,
+            compressionQuality: 0.72
+        )
+        lastScannedImageData = thumbnailData
+
+        let response: RecognitionResponse
+        do {
+            response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
+        } catch let error as APIClientError where error.statusCode == 400 && error.message.localizedCaseInsensitiveContains("No face detected") {
+            if markAsProcessed {
+                markProcessed(asset)
+            }
+            lastCompletedScanAt = Date()
+            hasNewPhoto = false
+            latestInsertedPhotoID = nil
+            pendingPhotoIdentifier = nil
+            lastResult = nil
+            pendingUnknownImageData = nil
+            lastScanMessage = nil
+            scanIssue = .noFaceDetected
+            return
+        }
+
+        if markAsProcessed {
+            markProcessed(asset)
+        }
+        lastCompletedScanAt = Date()
+        lastResult = response
+        onRecognitionResult?(response)
+        hasNewPhoto = false
+        latestInsertedPhotoID = nil
+        pendingPhotoIdentifier = nil
+        scanIssue = nil
+        lastScanMessage = scanSummary(for: response)
+        recognitionRuns.insert(
+            RecognitionRun(
+                thumbnailData: thumbnailData,
+                result: response,
+                photoCreatedAt: asset.creationDate,
+                photoModifiedAt: asset.modificationDate
+            ),
+            at: 0
+        )
+        recognitionRuns = Array(recognitionRuns.prefix(50))
+        saveRecognitionRuns()
+
+        switch response.status {
+        case .recognized:
+            pendingUnknownImageData = nil
+            if let person = response.person {
+                notifications.notifyRecognized(person: person)
+            }
+        case .unknown:
+            pendingUnknownImageData = imageData
+            notifications.notifyUnknown()
+        }
+    }
+
+    private func scanIssue(for error: Error) -> ScanIssue {
+        if let apiError = error as? APIClientError {
+            if let statusCode = apiError.statusCode, statusCode >= 500 {
+                return .backendUnavailable(apiError.message)
+            }
+            return .failed(apiError.localizedDescription)
+        }
+
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .timedOut:
+                return .backendUnavailable("Nemo could not reach the backend.")
+            default:
+                break
+            }
+        }
+
+        return .failed(error.localizedDescription)
     }
 
     private func jpegData(for asset: PHAsset, targetSize: CGSize, compressionQuality: CGFloat) async throws -> Data {

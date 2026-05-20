@@ -15,6 +15,9 @@
 		A10000000000000000000006 /* Views/ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* Views/ContentView.swift */; };
 		A10000000000000000000007 /* Views/CreatePersonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* Views/CreatePersonView.swift */; };
 		A10000000000000000000008 /* Views/PersonDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* Views/PersonDetailView.swift */; };
+		A10000000000000000000009 /* SpeechManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* SpeechManager.swift */; };
+		A10000000000000000000010 /* Views/PatientModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* Views/PatientModeView.swift */; };
+		A10000000000000000000011 /* Views/PhotoPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* Views/PhotoPickerView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +31,9 @@
 		A20000000000000000000008 /* Views/PersonDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PersonDetailView.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000010 /* Nemo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Nemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000011 /* SpeechManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechManager.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* Views/PatientModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PatientModeView.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* Views/PhotoPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PhotoPickerView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,6 +64,7 @@
 				A20000000000000000000003 /* APIClient.swift */,
 				A20000000000000000000004 /* NotificationManager.swift */,
 				A20000000000000000000005 /* PhotoWatcher.swift */,
+				A20000000000000000000011 /* SpeechManager.swift */,
 				A40000000000000000000004 /* Views */,
 			);
 			path = Nemo;
@@ -76,7 +83,9 @@
 			children = (
 				A20000000000000000000006 /* Views/ContentView.swift */,
 				A20000000000000000000007 /* Views/CreatePersonView.swift */,
+				A20000000000000000000012 /* Views/PatientModeView.swift */,
 				A20000000000000000000008 /* Views/PersonDetailView.swift */,
+				A20000000000000000000013 /* Views/PhotoPickerView.swift */,
 			);
 			name = Views;
 			sourceTree = "<group>";
@@ -157,6 +166,9 @@
 				A10000000000000000000006 /* Views/ContentView.swift in Sources */,
 				A10000000000000000000007 /* Views/CreatePersonView.swift in Sources */,
 				A10000000000000000000008 /* Views/PersonDetailView.swift in Sources */,
+				A10000000000000000000009 /* SpeechManager.swift in Sources */,
+				A10000000000000000000010 /* Views/PatientModeView.swift in Sources */,
+				A10000000000000000000011 /* Views/PhotoPickerView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

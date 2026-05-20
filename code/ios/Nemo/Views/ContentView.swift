@@ -26,15 +26,32 @@ struct ContentView: View {
                 if patientMode {
                     PatientModeView(
                         photoWatcher: photoWatcher,
-                        backendURL: backendURL,
-                        showingCreatePerson: $showingCreatePerson
+                        onRetry: {
+                            Task {
+                                await photoWatcher.retryLatestPhoto(
+                                    baseURL: backendURL,
+                                    notifications: notifications
+                                )
+                            }
+                        }
                     )
                 } else {
                     RecognitionTabView(
                         photoWatcher: photoWatcher,
                         backendURL: backendURL,
                         showingCreatePerson: $showingCreatePerson,
-                        notifications: notifications
+                        notifications: notifications,
+                        onRetry: {
+                            Task {
+                                await photoWatcher.retryLatestPhoto(
+                                    baseURL: backendURL,
+                                    notifications: notifications
+                                )
+                            }
+                        },
+                        onOpenSettings: {
+                            selectedTab = 2
+                        }
                     )
                 }
             }
@@ -189,6 +206,8 @@ private struct RecognitionTabView: View {
     let backendURL: String
     @Binding var showingCreatePerson: Bool
     let notifications: NotificationManager
+    let onRetry: () -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
         NavigationStack {
@@ -196,7 +215,8 @@ private struct RecognitionTabView: View {
                 VStack(spacing: 18) {
                     NewPhotoStatusView(
                         hasNewPhoto: photoWatcher.hasNewPhoto,
-                        isProcessing: photoWatcher.isProcessing
+                        isProcessing: photoWatcher.isProcessing,
+                        lastScanDate: photoWatcher.lastCompletedScanAt
                     )
 
                     if let imageData = photoWatcher.lastScannedImageData {
@@ -204,11 +224,21 @@ private struct RecognitionTabView: View {
                     }
 
                     if let issue = photoWatcher.scanIssue {
-                        ScanIssueView(issue: issue)
+                        ScanIssueView(
+                            issue: issue,
+                            onRetry: onRetry,
+                            onOpenSettings: onOpenSettings
+                        )
                     }
 
                     if let result = photoWatcher.lastResult {
                         RecognitionResultView(result: result)
+                        if result.status == .unknown {
+                            UnknownRecognitionView(
+                                onRetry: onRetry,
+                                showingCreatePerson: $showingCreatePerson
+                            )
+                        }
                     } else if photoWatcher.scanIssue == nil {
                         EmptyRecognitionView()
                     }
@@ -220,7 +250,7 @@ private struct RecognitionTabView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    if photoWatcher.pendingUnknownImageData != nil {
+                    if photoWatcher.pendingUnknownImageData != nil && photoWatcher.lastResult?.status != .unknown {
                         Button {
                             showingCreatePerson = true
                         } label: {
@@ -229,6 +259,18 @@ private struct RecognitionTabView: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.large)
+                    }
+
+                    if photoWatcher.scanIssue == nil,
+                       photoWatcher.lastResult?.status != .unknown,
+                       (photoWatcher.lastScannedImageData != nil || photoWatcher.lastResult != nil) {
+                        Button(action: onRetry) {
+                            Label("Scan Again", systemImage: "arrow.clockwise")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(photoWatcher.isProcessing)
                     }
                 }
                 .padding()
@@ -242,6 +284,7 @@ private struct RecognitionTabView: View {
 private struct NewPhotoStatusView: View {
     let hasNewPhoto: Bool
     let isProcessing: Bool
+    let lastScanDate: Date?
 
     private var icon: String {
         if isProcessing {
@@ -287,6 +330,11 @@ private struct NewPhotoStatusView: View {
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    if let lastScanDate {
+                        Text("Last scan \(Self.timestampFormatter.localizedString(for: lastScanDate, relativeTo: Date()))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer()
@@ -302,35 +350,86 @@ private struct NewPhotoStatusView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
+
+    private static let timestampFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter
+    }()
 }
 
 private struct ScanIssueView: View {
     let issue: ScanIssue
+    let onRetry: () -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.title3)
-                .foregroundStyle(.orange)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: issueIcon)
+                    .font(.title3)
+                    .foregroundStyle(issueTint)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(issue.title)
-                    .font(.headline)
-                Text(issue.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(issue.title)
+                        .font(.headline)
+                    Text(issue.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(issue.nextStep)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                }
+
+                Spacer()
             }
 
-            Spacer()
+            HStack(spacing: 12) {
+                Button(action: onRetry) {
+                    Label("Scan Again", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                if case .backendUnavailable = issue {
+                    Button(action: onOpenSettings) {
+                        Label("Open Settings", systemImage: "gearshape")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12))
+        .background(issueTint.opacity(0.12))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+                .stroke(issueTint.opacity(0.35), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var issueIcon: String {
+        switch issue {
+        case .noFaceDetected:
+            return "person.crop.rectangle.badge.xmark"
+        case .backendUnavailable:
+            return "wifi.exclamationmark"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var issueTint: Color {
+        switch issue {
+        case .noFaceDetected:
+            return .orange
+        case .backendUnavailable:
+            return .red
+        case .failed:
+            return .orange
+        }
     }
 }
 
@@ -416,6 +515,45 @@ private struct RecognitionResultView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct UnknownRecognitionView: View {
+    let onRetry: () -> Void
+    @Binding var showingCreatePerson: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Unknown Person")
+                .font(.headline)
+            Text("No saved match was found. If you know this person, ask a caregiver to save them. Otherwise, scan again with a clearer photo.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button(action: onRetry) {
+                    Label("Scan Again", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button {
+                    showingCreatePerson = true
+                } label: {
+                    Label("Save Person", systemImage: "person.crop.circle.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
