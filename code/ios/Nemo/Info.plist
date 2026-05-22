@@ -31,6 +31,10 @@
 	<string>Nemo connects to your Mac on the local network while testing the backend.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Nemo scans recent photos to recognize people you have saved.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Nemo listens for voice commands such as who is this and call for help.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Nemo uses speech recognition to understand voice commands.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
