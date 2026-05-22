@@ -5,6 +5,9 @@ struct PatientModeView: View {
     let backendURL: String
     @Binding var showingCreatePerson: Bool
 
+    @StateObject private var voiceCommandManager = VoiceCommandManager()
+    @StateObject private var speechManager = SpeechManager()
+
     var body: some View {
         ZStack {
             backgroundColor.ignoresSafeArea()
@@ -21,8 +24,32 @@ struct PatientModeView: View {
                 }
                 Spacer()
                 Spacer()
+                voiceCommandButton
+                    .padding(.bottom, 24)
             }
             .padding(32)
+        }
+        .onAppear {
+            voiceCommandManager.requestPermissions()
+        }
+    }
+    
+    private var voiceCommandButton: some View {
+        Button {
+            if voiceCommandManager.isListening {
+                voiceCommandManager.stopListening()
+            } else {
+                voiceCommandManager.startListening(baseURL: backendURL, speechManager: speechManager)
+            }
+        } label: {
+            VStack(spacing: 10) {
+                Image(systemName: voiceCommandManager.isListening ? "mic.fill" : "mic")
+                    .font(.system(size: 48))
+                    .foregroundStyle(voiceCommandManager.isListening ? .red : .secondary)
+                Text(voiceCommandManager.isListening ? "Listening..." : "Say a command")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

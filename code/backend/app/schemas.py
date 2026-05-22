@@ -26,3 +26,10 @@ class RecognitionResponse(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
+
+class VoiceCommandRequest(BaseModel):
+    text: str
+
+class VoiceCommandResponse(BaseModel):
+    action: str
+    message: str

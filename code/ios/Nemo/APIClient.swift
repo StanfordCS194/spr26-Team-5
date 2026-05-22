@@ -103,6 +103,13 @@ struct APIClient {
         request.httpMethod = "DELETE"
         try await sendEmpty(request)
     }
+    
+    func voiceCommand(text: String, baseURL: String) async throws -> VoiceCommandResponse {
+    var request = try request(path: "/voice-command", baseURL: baseURL)
+    request.httpMethod = "POST"
+    request.setJSONBody(VoiceCommandRequest(text: text))
+    return try await send(request)
+}
 
     private func request(path: String, baseURL: String) throws -> URLRequest {
         guard let base = URL(string: baseURL), let url = URL(string: path, relativeTo: base) else {
