@@ -23,6 +23,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     private var isObserving = false
     private var recentImageFetchResult: PHFetchResult<PHAsset>?
     private var latestInsertedPhotoID: String?
+    private var lastScannedPhotoID: String?
     private var knownRecentPhotoIDs = Set<String>()
 
     override init() {
@@ -113,8 +114,8 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         guard !isProcessing else {
             return
         }
-        guard let asset = fetchRecentImageAssets().firstObject else {
-            scanIssue = .failed("No recent photo is available to try again.")
+        guard let lastScannedPhotoID, let asset = fetchAsset(id: lastScannedPhotoID) else {
+            scanIssue = .failed("The photo from the current result is no longer available to scan again.")
             return
         }
 
@@ -137,6 +138,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         defer { isProcessing = false }
 
         do {
+            lastScannedPhotoID = nil
             let thumbnailData = try thumbnailData(
                 from: imageData,
                 targetSize: Self.historyThumbnailTargetSize,
@@ -369,6 +371,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             targetSize: Self.historyThumbnailTargetSize,
             compressionQuality: 0.72
         )
+        lastScannedPhotoID = asset.localIdentifier
         lastScannedImageData = thumbnailData
 
         let response: RecognitionResponse
