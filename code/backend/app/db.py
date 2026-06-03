@@ -182,6 +182,18 @@ class Database:
             return None
         return row["reference_image"]
 
+    def update_reference_image(self, person_id: str, reference_image: bytes) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE people
+                SET reference_image = ?
+                WHERE id = ?
+                """,
+                (reference_image, person_id),
+            )
+        return cursor.rowcount > 0
+
     def update_person(self, person_id: str, name: str, description: str, relationship: str = "", notes: str = "") -> dict | None:
         with self.connect() as connection:
             cursor = connection.execute(

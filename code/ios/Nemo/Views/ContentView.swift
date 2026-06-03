@@ -1151,6 +1151,7 @@ private struct PersonReferenceImageView: View {
     let personID: String
     let backendURL: String
     let size: CGFloat
+    var refreshToken: Int = 0
 
     @State private var imageData: Data?
     @State private var didLoad = false
@@ -1177,12 +1178,13 @@ private struct PersonReferenceImageView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .task(id: "\(backendURL)-\(personID)") {
+        .task(id: "\(backendURL)-\(personID)-\(refreshToken)") {
             await loadImage()
         }
     }
 
     private func loadImage() async {
+        didLoad = false
         do {
             imageData = try await apiClient.personReferenceImage(id: personID, baseURL: backendURL)
         } catch {
@@ -1334,6 +1336,10 @@ private struct PersonDatabaseEditor: View {
     @State private var isAddingPhoto = false
     @State private var showPhotoPicker = false
     @State private var addPhotoError: String?
+    @State private var isUpdatingReferencePhoto = false
+    @State private var showReferencePhotoPicker = false
+    @State private var referencePhotoError: String?
+    @State private var referencePhotoRefreshToken = 0
 
     private let apiClient = APIClient()
 
@@ -1360,9 +1366,25 @@ private struct PersonDatabaseEditor: View {
                     PersonReferenceImageView(
                         personID: person.id,
                         backendURL: backendURL,
-                        size: 180
+                        size: 180,
+                        refreshToken: referencePhotoRefreshToken
                     )
                     Spacer()
+                }
+                Button {
+                    showReferencePhotoPicker = true
+                } label: {
+                    if isUpdatingReferencePhoto {
+                        ProgressView()
+                    } else {
+                        Label("Change Reference Photo", systemImage: "photo")
+                    }
+                }
+                .disabled(isUpdatingReferencePhoto)
+                if let referencePhotoError {
+                    Text(referencePhotoError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
 
@@ -1431,6 +1453,11 @@ private struct PersonDatabaseEditor: View {
         .sheet(isPresented: $showPhotoPicker) {
             PhotoPickerView { imageData in
                 Task { await uploadPhoto(imageData) }
+            }
+        }
+        .sheet(isPresented: $showReferencePhotoPicker) {
+            PhotoPickerView { imageData in
+                Task { await updateReferencePhoto(imageData) }
             }
         }
         .navigationTitle("Edit Person")
@@ -1507,6 +1534,22 @@ private struct PersonDatabaseEditor: View {
             photoCount += 1
         } catch {
             addPhotoError = error.localizedDescription
+        }
+    }
+
+    private func updateReferencePhoto(_ imageData: Data) async {
+        isUpdatingReferencePhoto = true
+        referencePhotoError = nil
+        defer { isUpdatingReferencePhoto = false }
+        do {
+            try await apiClient.updatePersonReferenceImage(
+                id: person.id,
+                imageData: imageData,
+                baseURL: backendURL
+            )
+            referencePhotoRefreshToken += 1
+        } catch {
+            referencePhotoError = error.localizedDescription
         }
     }
 }

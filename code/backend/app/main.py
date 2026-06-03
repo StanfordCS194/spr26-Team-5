@@ -61,6 +61,18 @@ def create_app(
             raise HTTPException(status_code=404, detail="Reference image not found")
         return Response(content=image_bytes, media_type="image/jpeg")
 
+    @app.post("/people/{person_id}/reference-image", status_code=204)
+    @app.put("/people/{person_id}/reference-image", status_code=204)
+    async def update_reference_image(person_id: str, file: UploadFile = File(...)) -> Response:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        image_bytes = await file.read()
+        result = _encode_or_raise(app.state.recognizer, image_bytes)
+        if not result.encodings:
+            raise HTTPException(status_code=400, detail="No face detected in image")
+        app.state.db.update_reference_image(person_id, image_bytes)
+        return Response(status_code=204)
+
     @app.post("/people/{person_id}/photos")
     async def add_person_photo(person_id: str, file: UploadFile = File(...)) -> dict:
         if app.state.db.get_person(person_id) is None:

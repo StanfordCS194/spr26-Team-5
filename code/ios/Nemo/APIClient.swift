@@ -78,6 +78,13 @@ struct APIClient {
         return try await sendOptionalData(request)
     }
 
+    func updatePersonReferenceImage(id: String, imageData: Data, baseURL: String) async throws {
+        var request = try request(path: "/people/\(id)/reference-image", baseURL: baseURL)
+        request.httpMethod = "POST"
+        request.setMultipartBody(fields: [:], fileField: "file", fileName: "reference.jpg", mimeType: "image/jpeg", data: imageData)
+        try await sendEmpty(request)
+    }
+
     func updatePerson(id: String, name: String, description: String, relationship: String, baseURL: String) async throws -> Person {
         var request = try request(path: "/people/\(id)", baseURL: baseURL)
         request.httpMethod = "PATCH"
