@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import Photos
 import UserNotifications
+import AVFoundation
 
 struct ContentView: View {
     @EnvironmentObject private var notifications: NotificationManager
@@ -17,6 +18,7 @@ struct ContentView: View {
     @State private var showingCreatePerson = false
     @State private var healthStatus = "Not checked"
     @State private var isCheckingHealth = false
+    @State private var cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
     private let apiClient = APIClient()
 
@@ -89,12 +91,18 @@ struct ContentView: View {
                 ttsEnabled: $ttsEnabled,
                 patientMode: $patientMode,
                 photoAuthorizationStatus: photoWatcher.photoAuthorizationStatus,
+                cameraAuthorizationStatus: cameraAuthorizationStatus,
                 notificationAuthorizationStatus: notifications.authorizationStatus,
                 healthStatus: healthStatus,
                 isCheckingHealth: isCheckingHealth,
                 requestPhotos: {
                     Task {
                         await photoWatcher.requestPermission()
+                    }
+                },
+                requestCamera: {
+                    Task {
+                        await requestCameraPermission()
                     }
                 },
                 requestNotifications: {
@@ -138,6 +146,7 @@ struct ContentView: View {
             if phase == .active {
                 photoWatcher.startObservingIfAllowed()
                 photoWatcher.refreshForPhotoChanges()
+                cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
                 photoWatcher.onRecognitionResult = { response in
                     guard ttsEnabled else { return }
                     speechManager.speak(Self.speechText(for: response))
@@ -181,6 +190,14 @@ struct ContentView: View {
         } catch {
             healthStatus = error.localizedDescription
         }
+    }
+
+    private func requestCameraPermission() async {
+        if cameraAuthorizationStatus == .notDetermined {
+            _ = await AVCaptureDevice.requestAccess(for: .video)
+        }
+
+        cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
     }
 
     private func autoScanIfNeeded() async {
@@ -794,10 +811,12 @@ private struct SettingsTabView: View {
     @Binding var ttsEnabled: Bool
     @Binding var patientMode: Bool
     let photoAuthorizationStatus: PHAuthorizationStatus
+    let cameraAuthorizationStatus: AVAuthorizationStatus
     let notificationAuthorizationStatus: UNAuthorizationStatus
     let healthStatus: String
     let isCheckingHealth: Bool
     let requestPhotos: () -> Void
+    let requestCamera: () -> Void
     let requestNotifications: () -> Void
     let checkHealth: () -> Void
 
@@ -839,6 +858,11 @@ private struct SettingsTabView: View {
                     }
                     StatusLine(title: "Photos", value: photoStatusText)
 
+                    Button(action: requestCamera) {
+                        Label("Request Camera Access", systemImage: "camera")
+                    }
+                    StatusLine(title: "Camera", value: cameraStatusText)
+
                     Button(action: requestNotifications) {
                         Label("Request Notifications", systemImage: "bell")
                     }
@@ -855,6 +879,21 @@ private struct SettingsTabView: View {
             return "Authorized"
         case .limited:
             return "Limited"
+        case .denied:
+            return "Denied"
+        case .restricted:
+            return "Restricted"
+        case .notDetermined:
+            return "Not determined"
+        @unknown default:
+            return "Unknown"
+        }
+    }
+
+    private var cameraStatusText: String {
+        switch cameraAuthorizationStatus {
+        case .authorized:
+            return "Authorized"
         case .denied:
             return "Denied"
         case .restricted:
