@@ -24,6 +24,8 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     private var recentImageFetchResult: PHFetchResult<PHAsset>?
     private var latestInsertedPhotoID: String?
     private var lastScannedPhotoID: String?
+    private(set) var lastScannedRecognitionImageData: Data?
+    private var autoSavedRecognitionEncoding: SavedRecognitionEncoding?
     private var knownRecentPhotoIDs = Set<String>()
 
     override init() {
@@ -139,6 +141,8 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
         do {
             lastScannedPhotoID = nil
+            lastScannedRecognitionImageData = imageData
+            autoSavedRecognitionEncoding = nil
             let thumbnailData = try thumbnailData(
                 from: imageData,
                 targetSize: Self.historyThumbnailTargetSize,
@@ -156,6 +160,8 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
                 pendingPhotoIdentifier = nil
                 lastScanSupportsPhotoRetry = false
                 lastResult = nil
+                lastScannedRecognitionImageData = nil
+                autoSavedRecognitionEncoding = nil
                 pendingUnknownImageData = nil
                 lastScanMessage = nil
                 scanIssue = .noFaceDetected
@@ -187,6 +193,11 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             case .recognized:
                 pendingUnknownImageData = nil
                 if let person = response.person {
+                    await autoSaveRecognitionEncoding(
+                        personID: person.id,
+                        imageData: imageData,
+                        baseURL: baseURL
+                    )
                     notifications.notifyRecognized(person: person)
                 }
             case .unknown:
@@ -316,6 +327,71 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         }
     }
 
+    func changeLastRecognition(to person: Person, baseURL: String) async throws {
+        guard let imageData = lastScannedRecognitionImageData else {
+            throw PhotoWatcherError.noScannedImageAvailable
+        }
+        guard let currentResult = lastResult, currentResult.status == .recognized else {
+            throw PhotoWatcherError.noRecognizedResultAvailable
+        }
+
+        if let autoSavedRecognitionEncoding,
+           autoSavedRecognitionEncoding.personID != person.id {
+            try await apiClient.deletePersonPhotoEncoding(
+                personID: autoSavedRecognitionEncoding.personID,
+                encodingID: autoSavedRecognitionEncoding.encodingID,
+                baseURL: baseURL
+            )
+            self.autoSavedRecognitionEncoding = nil
+        }
+
+        let encodingID = try await apiClient.addPersonPhotoEncoding(
+            id: person.id,
+            imageData: imageData,
+            baseURL: baseURL
+        )
+        autoSavedRecognitionEncoding = SavedRecognitionEncoding(
+            personID: person.id,
+            encodingID: encodingID
+        )
+
+        let correctedResult = currentResult.replacingPerson(person)
+        lastResult = correctedResult
+        lastScanMessage = "Changed match to \(person.name) and saved this photo as a training encoding."
+
+        if let firstRun = recognitionRuns.first,
+           firstRun.result == currentResult {
+            recognitionRuns[0] = firstRun.replacingPerson(person)
+            saveRecognitionRuns()
+        }
+    }
+
+    func replaceLastRecognitionWithCreatedPerson(_ person: Person, baseURL: String) async throws {
+        guard let currentResult = lastResult, currentResult.status == .recognized else {
+            throw PhotoWatcherError.noRecognizedResultAvailable
+        }
+
+        if let autoSavedRecognitionEncoding,
+           autoSavedRecognitionEncoding.personID != person.id {
+            try await apiClient.deletePersonPhotoEncoding(
+                personID: autoSavedRecognitionEncoding.personID,
+                encodingID: autoSavedRecognitionEncoding.encodingID,
+                baseURL: baseURL
+            )
+            self.autoSavedRecognitionEncoding = nil
+        }
+
+        let correctedResult = currentResult.replacingPerson(person)
+        lastResult = correctedResult
+        lastScanMessage = "Changed match to \(person.name) and saved this photo as a training encoding."
+
+        if let firstRun = recognitionRuns.first,
+           firstRun.result == currentResult {
+            recognitionRuns[0] = firstRun.replacingPerson(person)
+            saveRecognitionRuns()
+        }
+    }
+
     private func newestUnprocessedImageAsset() -> PHAsset? {
         let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
 
@@ -372,6 +448,8 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             compressionQuality: 0.72
         )
         lastScannedPhotoID = asset.localIdentifier
+        lastScannedRecognitionImageData = imageData
+        autoSavedRecognitionEncoding = nil
         lastScannedImageData = thumbnailData
 
         let response: RecognitionResponse
@@ -387,6 +465,8 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             pendingPhotoIdentifier = nil
             lastScanSupportsPhotoRetry = true
             lastResult = nil
+            lastScannedRecognitionImageData = nil
+            autoSavedRecognitionEncoding = nil
             pendingUnknownImageData = nil
             lastScanMessage = nil
             scanIssue = .noFaceDetected
@@ -421,11 +501,34 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         case .recognized:
             pendingUnknownImageData = nil
             if let person = response.person {
+                await autoSaveRecognitionEncoding(
+                    personID: person.id,
+                    imageData: imageData,
+                    baseURL: baseURL
+                )
                 notifications.notifyRecognized(person: person)
             }
         case .unknown:
             pendingUnknownImageData = imageData
             notifications.notifyUnknown()
+        }
+    }
+
+    private func autoSaveRecognitionEncoding(personID: String, imageData: Data, baseURL: String) async {
+        do {
+            let encodingID = try await apiClient.addPersonPhotoEncoding(
+                id: personID,
+                imageData: imageData,
+                baseURL: baseURL
+            )
+            autoSavedRecognitionEncoding = SavedRecognitionEncoding(
+                personID: personID,
+                encodingID: encodingID
+            )
+            lastScanMessage = "\(lastScanMessage ?? "Recognized a saved person.") Saved this photo as a training encoding."
+        } catch {
+            autoSavedRecognitionEncoding = nil
+            lastScanMessage = "\(lastScanMessage ?? "Recognized a saved person.") Could not save this photo as a training encoding: \(error.localizedDescription)"
         }
     }
 
@@ -597,13 +700,24 @@ private extension PHFetchResult where ObjectType == PHAsset {
     }
 }
 
+private struct SavedRecognitionEncoding {
+    let personID: String
+    let encodingID: String
+}
+
 enum PhotoWatcherError: Error, LocalizedError {
     case imageConversionFailed
+    case noScannedImageAvailable
+    case noRecognizedResultAvailable
 
     var errorDescription: String? {
         switch self {
         case .imageConversionFailed:
             return "Could not convert the Photos asset to JPEG."
+        case .noScannedImageAvailable:
+            return "No scanned photo is available to save."
+        case .noRecognizedResultAvailable:
+            return "There is no recognized person to change."
         }
     }
 }

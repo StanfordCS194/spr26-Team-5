@@ -229,6 +229,9 @@ private struct RecognitionTabView: View {
     let onOpenSettings: () -> Void
     @State private var showingCamera = false
     @State private var cameraMessage: String?
+    @State private var showingChangePerson = false
+    @State private var correctionMessage: String?
+    @State private var isChangingPerson = false
 
     var body: some View {
         NavigationStack {
@@ -259,7 +262,19 @@ private struct RecognitionTabView: View {
                     }
 
                     if let result = photoWatcher.lastResult {
-                        RecognitionResultView(result: result)
+                        RecognitionResultView(
+                            result: result,
+                            isChangingPerson: isChangingPerson,
+                            onChangePerson: result.status == .recognized ? {
+                                showingChangePerson = true
+                            } : nil
+                        )
+                        if let correctionMessage {
+                            Text(correctionMessage)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                         if result.status == .unknown {
                             UnknownRecognitionView(
                                 onRetry: onRetry,
@@ -330,6 +345,24 @@ private struct RecognitionTabView: View {
                 )
                 .ignoresSafeArea()
             }
+            .sheet(isPresented: $showingChangePerson) {
+                ChangeRecognizedPersonView(
+                    backendURL: backendURL,
+                    currentPersonID: photoWatcher.lastResult?.person?.id,
+                    recognitionImageData: photoWatcher.lastScannedRecognitionImageData,
+                    isSaving: isChangingPerson,
+                    onSelect: { person in
+                        Task {
+                            await changeRecognition(to: person)
+                        }
+                    },
+                    onCreatePerson: { person in
+                        Task {
+                            await changeRecognitionToCreatedPerson(person)
+                        }
+                    }
+                )
+            }
         }
     }
 
@@ -340,6 +373,32 @@ private struct RecognitionTabView: View {
         }
 
         showingCamera = true
+    }
+
+    private func changeRecognition(to person: Person) async {
+        isChangingPerson = true
+        correctionMessage = nil
+        defer { isChangingPerson = false }
+
+        do {
+            try await photoWatcher.changeLastRecognition(to: person, baseURL: backendURL)
+            showingChangePerson = false
+        } catch {
+            correctionMessage = error.localizedDescription
+        }
+    }
+
+    private func changeRecognitionToCreatedPerson(_ person: Person) async {
+        isChangingPerson = true
+        correctionMessage = nil
+        defer { isChangingPerson = false }
+
+        do {
+            try await photoWatcher.replaceLastRecognitionWithCreatedPerson(person, baseURL: backendURL)
+            showingChangePerson = false
+        } catch {
+            correctionMessage = error.localizedDescription
+        }
     }
 }
 
@@ -583,6 +642,8 @@ private struct EmptyRecognitionView: View {
 
 private struct RecognitionResultView: View {
     let result: RecognitionResponse
+    let isChangingPerson: Bool
+    let onChangePerson: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -620,11 +681,140 @@ private struct RecognitionResultView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            if let onChangePerson {
+                Button(action: onChangePerson) {
+                    if isChangingPerson {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Change Person", systemImage: "person.2")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isChangingPerson)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct ChangeRecognizedPersonView: View {
+    let backendURL: String
+    let currentPersonID: String?
+    let recognitionImageData: Data?
+    let isSaving: Bool
+    let onSelect: (Person) -> Void
+    let onCreatePerson: (Person) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var people: [Person] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var showingCreatePerson = false
+
+    private let apiClient = APIClient()
+
+    private var selectablePeople: [Person] {
+        people.filter { $0.id != currentPersonID }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if isLoading {
+                    ProgressView()
+                }
+
+                Section {
+                    Button {
+                        showingCreatePerson = true
+                    } label: {
+                        Label("Add New Person", systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .disabled(isSaving || recognitionImageData == nil)
+
+                    if recognitionImageData == nil {
+                        Text("No scanned photo is available for a new person.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let errorMessage {
+                    Section("Error") {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section("People") {
+                    if selectablePeople.isEmpty && !isLoading {
+                        Text("No other saved people.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(selectablePeople) { person in
+                            Button {
+                                onSelect(person)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    PersonReferenceImageView(
+                                        personID: person.id,
+                                        backendURL: backendURL,
+                                        size: 48
+                                    )
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(person.name)
+                                            .font(.headline)
+                                            .foregroundStyle(.primary)
+                                        Text(person.description.isEmpty ? "No description." : person.description)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .disabled(isSaving)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Change Person")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSaving)
+                }
+            }
+            .task {
+                await loadPeople()
+            }
+            .sheet(isPresented: $showingCreatePerson) {
+                CreatePersonView(
+                    backendURL: backendURL,
+                    imageData: recognitionImageData,
+                    onCreated: onCreatePerson
+                )
+            }
+        }
+    }
+
+    private func loadPeople() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            people = try await apiClient.people(baseURL: backendURL)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
     }
 }
 

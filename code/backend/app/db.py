@@ -83,15 +83,28 @@ class Database:
             "last_seen": None,
         }
 
-    def add_face_encoding(self, person_id: str, encoding: list[float]) -> None:
+    def add_face_encoding(self, person_id: str, encoding: list[float]) -> str:
+        encoding_id = str(uuid.uuid4())
         with self.connect() as connection:
             connection.execute(
                 """
                 INSERT INTO face_encodings(id, person_id, encoding_json, created_at)
                 VALUES (?, ?, ?, ?)
                 """,
-                (str(uuid.uuid4()), person_id, json.dumps(encoding), _now()),
+                (encoding_id, person_id, json.dumps(encoding), _now()),
             )
+        return encoding_id
+
+    def delete_face_encoding(self, person_id: str, encoding_id: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM face_encodings
+                WHERE id = ? AND person_id = ?
+                """,
+                (encoding_id, person_id),
+            )
+        return cursor.rowcount > 0
 
     def get_encoding_count(self, person_id: str) -> int:
         with self.connect() as connection:

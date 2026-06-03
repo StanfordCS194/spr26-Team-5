@@ -83,6 +83,16 @@ struct PatientModeView: View {
             if !person.description.isEmpty {
                 Text(person.description).font(.system(size: 28)).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
+            Button(action: presentCamera) {
+                Label("Take Another Photo", systemImage: "camera.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(.blue)
+            .padding(.top, 8)
         }
     }
 

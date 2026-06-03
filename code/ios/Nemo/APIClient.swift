@@ -93,9 +93,23 @@ struct APIClient {
     }
 
     func addPersonPhoto(id: String, imageData: Data, baseURL: String) async throws {
+        _ = try await addPersonPhotoEncoding(id: id, imageData: imageData, baseURL: baseURL)
+    }
+
+    func addPersonPhotoEncoding(id: String, imageData: Data, baseURL: String) async throws -> String {
         var request = try request(path: "/people/\(id)/photos", baseURL: baseURL)
         request.httpMethod = "POST"
         request.setMultipartBody(fields: [:], fileField: "file", fileName: "extra_photo.jpg", mimeType: "image/jpeg", data: imageData)
+        let result: [String: String] = try await send(request)
+        guard let encodingID = result["encoding_id"] else {
+            throw APIClientError.invalidResponse
+        }
+        return encodingID
+    }
+
+    func deletePersonPhotoEncoding(personID: String, encodingID: String, baseURL: String) async throws {
+        var request = try request(path: "/people/\(personID)/photos/\(encodingID)", baseURL: baseURL)
+        request.httpMethod = "DELETE"
         try await sendEmpty(request)
     }
 
