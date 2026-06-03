@@ -91,6 +91,18 @@ def create_app(
         if not result.encodings:
             raise HTTPException(status_code=400, detail="No face detected in image")
 
+        name = name.strip()
+        description = description.strip()
+        relationship = relationship.strip()
+        notes = notes.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Name cannot be empty")
+        if app.state.db.has_person_with_name(name):
+            raise HTTPException(
+                status_code=409,
+                detail="A person with this name already exists. Add this photo to the existing person or choose a different name.",
+            )
+
         person = app.state.db.create_person(
             name=name,
             description=description,
@@ -107,16 +119,21 @@ def create_app(
         description = update.description.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Name cannot be empty")
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        if app.state.db.has_person_with_name(name, excluding_person_id=person_id):
+            raise HTTPException(
+                status_code=409,
+                detail="A person with this name already exists. Choose a different name.",
+            )
 
         person = app.state.db.update_person(
             person_id=person_id,
             name=name,
             description=description,
-            relationship=update.relationship,
-            notes=update.notes,
+            relationship=update.relationship.strip(),
+            notes=update.notes.strip(),
         )
-        if person is None:
-            raise HTTPException(status_code=404, detail="Person not found")
         return person
 
     @app.delete("/people/{person_id}", status_code=204)

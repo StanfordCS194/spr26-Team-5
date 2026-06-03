@@ -11,6 +11,9 @@ struct CreatePersonView: View {
     @State private var relationship = ""
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var isCombining = false
+    @State private var duplicatePerson: Person?
+    @State private var showingDuplicateAlert = false
 
     private let apiClient = APIClient()
 
@@ -42,6 +45,16 @@ struct CreatePersonView: View {
                 }
             }
             .navigationTitle("Create Person")
+            .alert("Name Already Exists", isPresented: $showingDuplicateAlert, presenting: duplicatePerson) { person in
+                Button("Add Photo to Existing") {
+                    Task {
+                        await combine(with: person)
+                    }
+                }
+                Button("Use Different Name", role: .cancel) { }
+            } message: { person in
+                Text("\(person.name) is already saved. You can add this photo as another saved encoding for that person, or change the name to create a separate person.")
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -54,16 +67,20 @@ struct CreatePersonView: View {
                             await save()
                         }
                     } label: {
-                        if isSaving {
+                        if isSaving || isCombining {
                             ProgressView()
                         } else {
                             Text("Save")
                         }
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || imageData == nil || isSaving)
+                    .disabled(trimmedName.isEmpty || imageData == nil || isSaving || isCombining)
                 }
             }
         }
+    }
+
+    private var trimmedName: String {
+        name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func save() async {
@@ -76,8 +93,14 @@ struct CreatePersonView: View {
         defer { isSaving = false }
 
         do {
+            if let duplicate = try await existingPerson(named: trimmedName) {
+                duplicatePerson = duplicate
+                showingDuplicateAlert = true
+                return
+            }
+
             let person = try await apiClient.createPerson(
-                name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+                name: trimmedName,
                 description: description.trimmingCharacters(in: .whitespacesAndNewlines),
                 relationship: relationship.trimmingCharacters(in: .whitespacesAndNewlines),
                 imageData: imageData,
@@ -85,8 +108,46 @@ struct CreatePersonView: View {
             )
             onCreated(person)
             dismiss()
+        } catch let error as APIClientError where error.statusCode == 409 {
+            if let duplicate = try? await existingPerson(named: trimmedName) {
+                duplicatePerson = duplicate
+                showingDuplicateAlert = true
+            } else {
+                errorMessage = error.message
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func existingPerson(named name: String) async throws -> Person? {
+        let normalizedName = name.normalizedPersonName
+        return try await apiClient.people(baseURL: backendURL).first {
+            $0.name.normalizedPersonName == normalizedName
+        }
+    }
+
+    private func combine(with person: Person) async {
+        guard let imageData else {
+            return
+        }
+
+        isCombining = true
+        errorMessage = nil
+        defer { isCombining = false }
+
+        do {
+            try await apiClient.addPersonPhoto(id: person.id, imageData: imageData, baseURL: backendURL)
+            onCreated(person)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private extension String {
+    var normalizedPersonName: String {
+        trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
 }

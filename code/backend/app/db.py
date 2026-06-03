@@ -93,6 +93,18 @@ class Database:
                 (str(uuid.uuid4()), person_id, json.dumps(encoding), _now()),
             )
 
+    def get_encoding_count(self, person_id: str) -> int:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM face_encodings
+                WHERE person_id = ?
+                """,
+                (person_id,),
+            ).fetchone()
+        return int(row["count"]) if row else 0
+
     def get_person(self, person_id: str) -> dict | None:
         with self.connect() as connection:
             row = connection.execute(
@@ -104,6 +116,44 @@ class Database:
                 (person_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def get_person_by_name(self, name: str) -> dict | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, name, description, created_at, relationship, notes, last_seen
+                FROM people
+                WHERE lower(name) = lower(?)
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (name,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def has_person_with_name(self, name: str, excluding_person_id: str | None = None) -> bool:
+        with self.connect() as connection:
+            if excluding_person_id is None:
+                row = connection.execute(
+                    """
+                    SELECT 1
+                    FROM people
+                    WHERE lower(name) = lower(?)
+                    LIMIT 1
+                    """,
+                    (name,),
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    """
+                    SELECT 1
+                    FROM people
+                    WHERE lower(name) = lower(?) AND id != ?
+                    LIMIT 1
+                    """,
+                    (name, excluding_person_id),
+                ).fetchone()
+        return row is not None
 
     def get_reference_image(self, person_id: str) -> bytes | None:
         with self.connect() as connection:
