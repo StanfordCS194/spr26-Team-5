@@ -47,6 +47,16 @@ class Database:
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(person_id) REFERENCES people(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS person_memories(
+                    id TEXT PRIMARY KEY,
+                    person_id TEXT NOT NULL,
+                    media BLOB NOT NULL,
+                    media_type TEXT NOT NULL,
+                    file_name TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(person_id) REFERENCES people(id)
+                );
                 """
             )
             columns = {
@@ -194,6 +204,61 @@ class Database:
             )
         return cursor.rowcount > 0
 
+    def add_memory(self, person_id: str, media: bytes, media_type: str, file_name: str) -> dict:
+        memory_id = str(uuid.uuid4())
+        created_at = _now()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO person_memories(id, person_id, media, media_type, file_name, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (memory_id, person_id, media, media_type, file_name, created_at),
+            )
+        return {
+            "id": memory_id,
+            "person_id": person_id,
+            "media_type": media_type,
+            "file_name": file_name,
+            "created_at": created_at,
+        }
+
+    def list_memories(self, person_id: str) -> list[dict]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, person_id, media_type, file_name, created_at
+                FROM person_memories
+                WHERE person_id = ?
+                ORDER BY created_at DESC
+                """,
+                (person_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_memory(self, person_id: str, memory_id: str) -> dict | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, person_id, media, media_type, file_name, created_at
+                FROM person_memories
+                WHERE person_id = ? AND id = ?
+                """,
+                (person_id, memory_id),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def delete_memory(self, person_id: str, memory_id: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                DELETE FROM person_memories
+                WHERE person_id = ? AND id = ?
+                """,
+                (person_id, memory_id),
+            )
+        return cursor.rowcount > 0
+
     def update_person(self, person_id: str, name: str, description: str, relationship: str = "", notes: str = "") -> dict | None:
         with self.connect() as connection:
             cursor = connection.execute(
@@ -222,6 +287,13 @@ class Database:
             connection.execute(
                 """
                 DELETE FROM face_encodings
+                WHERE person_id = ?
+                """,
+                (person_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM person_memories
                 WHERE person_id = ?
                 """,
                 (person_id,),

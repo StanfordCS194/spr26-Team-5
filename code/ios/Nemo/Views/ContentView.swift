@@ -1409,6 +1409,11 @@ private struct PersonDatabaseEditor: View {
     @State private var showReferencePhotoPicker = false
     @State private var referencePhotoError: String?
     @State private var referencePhotoRefreshToken = 0
+    @State private var memoryCount: Int = 0
+    @State private var isAddingMemory = false
+    @State private var showMemoryPicker = false
+    @State private var showMemories = false
+    @State private var memoryError: String?
 
     private let apiClient = APIClient()
 
@@ -1481,6 +1486,38 @@ private struct PersonDatabaseEditor: View {
                 }
             }
 
+            Section("Memories") {
+                HStack {
+                    Text("Saved memories")
+                    Spacer()
+                    Text("\(memoryCount)")
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    showMemoryPicker = true
+                } label: {
+                    if isAddingMemory {
+                        ProgressView()
+                    } else {
+                        Label("Add Memory", systemImage: "photo.stack")
+                    }
+                }
+                .disabled(isAddingMemory)
+
+                Button {
+                    showMemories = true
+                } label: {
+                    Label("Look Through Memories", systemImage: "rectangle.stack")
+                }
+                .disabled(memoryCount == 0)
+
+                if let memoryError {
+                    Text(memoryError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
             Section("Record") {
                 Text(person.id)
                     .font(.caption)
@@ -1518,7 +1555,7 @@ private struct PersonDatabaseEditor: View {
                 }
             }
         }
-        .task { await loadPhotoCount() }
+        .task { await loadCounts() }
         .sheet(isPresented: $showPhotoPicker) {
             PhotoPickerView { imageData in
                 Task { await uploadPhoto(imageData) }
@@ -1528,6 +1565,21 @@ private struct PersonDatabaseEditor: View {
             PhotoPickerView { imageData in
                 Task { await updateReferencePhoto(imageData) }
             }
+        }
+        .sheet(isPresented: $showMemoryPicker) {
+            MemoryPickerView { selection in
+                Task { await uploadMemory(selection) }
+            }
+        }
+        .sheet(isPresented: $showMemories) {
+            MemoriesGalleryView(
+                person: person,
+                backendURL: backendURL,
+                allowsDelete: true,
+                onDeleted: { _ in
+                    memoryCount = max(0, memoryCount - 1)
+                }
+            )
         }
         .navigationTitle("Edit Person")
         .toolbar {
@@ -1590,8 +1642,9 @@ private struct PersonDatabaseEditor: View {
         }
     }
 
-    private func loadPhotoCount() async {
+    private func loadCounts() async {
         photoCount = (try? await apiClient.personPhotoCount(id: person.id, baseURL: backendURL)) ?? 0
+        memoryCount = (try? await apiClient.personMemories(id: person.id, baseURL: backendURL).count) ?? 0
     }
 
     private func uploadPhoto(_ imageData: Data) async {
@@ -1619,6 +1672,24 @@ private struct PersonDatabaseEditor: View {
             referencePhotoRefreshToken += 1
         } catch {
             referencePhotoError = error.localizedDescription
+        }
+    }
+
+    private func uploadMemory(_ selection: MemoryMediaSelection) async {
+        isAddingMemory = true
+        memoryError = nil
+        defer { isAddingMemory = false }
+        do {
+            _ = try await apiClient.addPersonMemory(
+                id: person.id,
+                data: selection.data,
+                mimeType: selection.mimeType,
+                fileName: selection.fileName,
+                baseURL: backendURL
+            )
+            memoryCount += 1
+        } catch {
+            memoryError = error.localizedDescription
         }
     }
 }

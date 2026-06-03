@@ -126,6 +126,29 @@ struct APIClient {
         return result["count"] ?? 0
     }
 
+    func personMemories(id: String, baseURL: String) async throws -> [PersonMemory] {
+        let request = try request(path: "/people/\(id)/memories", baseURL: baseURL)
+        return try await send(request)
+    }
+
+    func addPersonMemory(id: String, data: Data, mimeType: String, fileName: String, baseURL: String) async throws -> PersonMemory {
+        var request = try request(path: "/people/\(id)/memories", baseURL: baseURL)
+        request.httpMethod = "POST"
+        request.setMultipartBody(fields: [:], fileField: "file", fileName: fileName, mimeType: mimeType, data: data)
+        return try await send(request)
+    }
+
+    func personMemoryData(personID: String, memoryID: String, baseURL: String) async throws -> Data {
+        let request = try request(path: "/people/\(personID)/memories/\(memoryID)", baseURL: baseURL)
+        return try await sendData(request)
+    }
+
+    func deletePersonMemory(personID: String, memoryID: String, baseURL: String) async throws {
+        var request = try request(path: "/people/\(personID)/memories/\(memoryID)", baseURL: baseURL)
+        request.httpMethod = "DELETE"
+        try await sendEmpty(request)
+    }
+
     func deletePerson(id: String, baseURL: String) async throws {
         var request = try request(path: "/people/\(id)", baseURL: baseURL)
         request.httpMethod = "DELETE"
@@ -171,6 +194,18 @@ struct APIClient {
         }
         if httpResponse.statusCode == 404 {
             return nil
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let message = Self.errorMessage(from: data)
+            throw APIClientError.serverError(httpResponse.statusCode, message)
+        }
+        return data
+    }
+
+    private func sendData(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let message = Self.errorMessage(from: data)
