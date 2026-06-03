@@ -1,8 +1,13 @@
 import SwiftUI
+import UIKit
 
 struct PatientModeView: View {
     @ObservedObject var photoWatcher: PhotoWatcher
+    let backendURL: String
+    let notifications: NotificationManager
     let onRetry: () -> Void
+    @State private var showingCamera = false
+    @State private var cameraMessage: String?
 
     var body: some View {
         ZStack {
@@ -23,6 +28,37 @@ struct PatientModeView: View {
             }
             .padding(32)
         }
+        .sheet(isPresented: $showingCamera) {
+            CameraCaptureView(
+                onCapture: { imageData in
+                    showingCamera = false
+                    cameraMessage = nil
+                    Task {
+                        await photoWatcher.scanCapturedImage(
+                            imageData: imageData,
+                            baseURL: backendURL,
+                            notifications: notifications
+                        )
+                    }
+                },
+                onCancel: {
+                    showingCamera = false
+                },
+                onError: { error in
+                    cameraMessage = error.localizedDescription
+                    showingCamera = false
+                }
+            )
+            .ignoresSafeArea()
+        }
+    }
+
+    private func presentCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            cameraMessage = CameraCaptureError.unavailable.localizedDescription
+            return
+        }
+        showingCamera = true
     }
 
     private var backgroundColor: Color {
@@ -55,6 +91,16 @@ struct PatientModeView: View {
             Image(systemName: "questionmark.circle.fill").font(.system(size: 80)).foregroundStyle(.orange)
             Text("Unknown Person").font(.system(size: 48, weight: .bold)).multilineTextAlignment(.center)
             Text("Ask a caregiver for help.").font(.system(size: 26)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button(action: presentCamera) {
+                Label("Take Photo", systemImage: "camera.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(.blue)
+            .padding(.top, 8)
             Button(action: onRetry) {
                 Label("Try Again", systemImage: "arrow.clockwise")
                     .font(.system(size: 30, weight: .semibold))
@@ -64,7 +110,6 @@ struct PatientModeView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .tint(.orange)
-            .padding(.top, 8)
         }
     }
 
@@ -73,6 +118,16 @@ struct PatientModeView: View {
             Image(systemName: "camera.viewfinder").font(.system(size: 80)).foregroundStyle(.secondary)
             Text("Ready to Recognize").font(.system(size: 40, weight: .semibold)).multilineTextAlignment(.center)
             Text("Take a photo to see who it is.").font(.system(size: 26)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button(action: presentCamera) {
+                Label("Take Photo", systemImage: "camera.fill")
+                    .font(.system(size: 30, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .tint(.blue)
+            .padding(.top, 8)
         }
     }
 }
