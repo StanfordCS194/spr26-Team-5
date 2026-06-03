@@ -208,11 +208,20 @@ private struct RecognitionTabView: View {
     let notifications: NotificationManager
     let onRetry: () -> Void
     let onOpenSettings: () -> Void
+    @State private var showingCamera = false
+    @State private var capturedCameraImageData: Data?
+    @State private var cameraMessage: String?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
+                    CameraCaptureStatusView(
+                        capturedImageData: capturedCameraImageData,
+                        message: cameraMessage,
+                        onTakePhoto: presentCamera
+                    )
+
                     NewPhotoStatusView(
                         hasNewPhoto: photoWatcher.hasNewPhoto,
                         isProcessing: photoWatcher.isProcessing,
@@ -277,7 +286,79 @@ private struct RecognitionTabView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Recognition")
+            .sheet(isPresented: $showingCamera) {
+                CameraCaptureView(
+                    onCapture: { imageData in
+                        capturedCameraImageData = imageData
+                        cameraMessage = "Photo captured. Recognition wiring is not connected yet."
+                        showingCamera = false
+                    },
+                    onCancel: {
+                        showingCamera = false
+                    },
+                    onError: { error in
+                        cameraMessage = error.localizedDescription
+                        showingCamera = false
+                    }
+                )
+                .ignoresSafeArea()
+            }
         }
+    }
+
+    private func presentCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            cameraMessage = CameraCaptureError.unavailable.localizedDescription
+            return
+        }
+
+        showingCamera = true
+    }
+}
+
+private struct CameraCaptureStatusView: View {
+    let capturedImageData: Data?
+    let message: String?
+    let onTakePhoto: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: "camera")
+                    .font(.title2)
+                    .foregroundStyle(.blue)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Camera Capture")
+                        .font(.headline)
+                    Text("Take a photo directly inside Nemo.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+
+            if let capturedImageData {
+                PhotoPreview(imageData: capturedImageData)
+            }
+
+            if let message {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(action: onTakePhoto) {
+                Label("Take Photo", systemImage: "camera.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 

@@ -18,6 +18,7 @@
 		A10000000000000000000009 /* SpeechManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* SpeechManager.swift */; };
 		A10000000000000000000010 /* Views/PatientModeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* Views/PatientModeView.swift */; };
 		A10000000000000000000011 /* Views/PhotoPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* Views/PhotoPickerView.swift */; };
+		A10000000000000000000012 /* Views/CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* Views/CameraCaptureView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 		A20000000000000000000011 /* SpeechManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeechManager.swift; sourceTree = "<group>"; };
 		A20000000000000000000012 /* Views/PatientModeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PatientModeView.swift; sourceTree = "<group>"; };
 		A20000000000000000000013 /* Views/PhotoPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PhotoPickerView.swift; sourceTree = "<group>"; };
+		A20000000000000000000014 /* Views/CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/CameraCaptureView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +83,7 @@
 		A40000000000000000000004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				A20000000000000000000014 /* Views/CameraCaptureView.swift */,
 				A20000000000000000000006 /* Views/ContentView.swift */,
 				A20000000000000000000007 /* Views/CreatePersonView.swift */,
 				A20000000000000000000012 /* Views/PatientModeView.swift */,
@@ -169,6 +172,7 @@
 				A10000000000000000000009 /* SpeechManager.swift in Sources */,
 				A10000000000000000000010 /* Views/PatientModeView.swift in Sources */,
 				A10000000000000000000011 /* Views/PhotoPickerView.swift in Sources */,
+				A10000000000000000000012 /* Views/CameraCaptureView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -295,7 +299,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = B47566L454;
+				DEVELOPMENT_TEAM = NZ6U62JP9G;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Nemo/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -317,7 +321,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = B47566L454;
+				DEVELOPMENT_TEAM = NZ6U62JP9G;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Nemo/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
