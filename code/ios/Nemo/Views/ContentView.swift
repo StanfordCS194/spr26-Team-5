@@ -263,6 +263,8 @@ private struct RecognitionTabView: View {
                         if result.status == .unknown {
                             UnknownRecognitionView(
                                 onRetry: onRetry,
+                                onRetake: presentCamera,
+                                isProcessing: photoWatcher.isProcessing,
                                 showingCreatePerson: $showingCreatePerson
                             )
                         }
@@ -628,6 +630,8 @@ private struct RecognitionResultView: View {
 
 private struct UnknownRecognitionView: View {
     let onRetry: () -> Void
+    let onRetake: () -> Void
+    let isProcessing: Bool
     @Binding var showingCreatePerson: Bool
 
     var body: some View {
@@ -638,12 +642,25 @@ private struct UnknownRecognitionView: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
+            Button(action: onRetake) {
+                if isProcessing {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("Retake Photo", systemImage: "camera.fill")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isProcessing)
+
             HStack(spacing: 12) {
                 Button(action: onRetry) {
                     Label("Scan Again", systemImage: "arrow.clockwise")
                         .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.bordered)
+                .disabled(isProcessing)
 
                 Button {
                     showingCreatePerson = true
@@ -652,6 +669,7 @@ private struct UnknownRecognitionView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
+                .disabled(isProcessing)
             }
         }
         .padding(16)
