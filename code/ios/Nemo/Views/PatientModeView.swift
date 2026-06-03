@@ -26,7 +26,8 @@ struct PatientModeView: View {
                 Spacer()
                 Spacer()
             }
-            .padding(32)
+            .padding(.vertical, 32)
+            .padding(.horizontal, 46)
         }
         .sheet(isPresented: $showingCamera) {
             CameraCaptureView(
@@ -77,11 +78,11 @@ struct PatientModeView: View {
     }
 
     private func recognizedView(person: Person) -> some View {
-        VStack(spacing: 24) {
+        VStack(spacing: 22) {
             PersonReferenceImageView(
                 personID: person.id,
                 backendURL: backendURL,
-                size: 220
+                size: 210
             )
             .overlay(alignment: .bottomTrailing) {
                 Image(systemName: "checkmark.circle.fill")
@@ -105,19 +106,37 @@ struct PatientModeView: View {
                         .background(Color.green.opacity(0.12))
                         .clipShape(Capsule())
                 }
+
+                if !person.description.isEmpty {
+                    ScrollView {
+                        Text(person.description)
+                            .font(.system(size: 26))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
+                    .frame(minHeight: 260, maxHeight: 320)
+                    .scrollIndicators(.visible)
+                }
             }
+
+            Spacer()
+                .frame(height: 24)
 
             Button(action: presentCamera) {
                 Label("Take Another Photo", systemImage: "camera.fill")
-                    .font(.system(size: 30, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 20)
+                    .font(.system(size: 18, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
             }
             .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            .controlSize(.regular)
             .tint(.blue)
             .padding(.top, 8)
         }
+        .padding(.top, 24)
     }
 
     private var unknownView: some View {
