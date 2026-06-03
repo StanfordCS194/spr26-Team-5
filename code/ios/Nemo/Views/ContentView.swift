@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import Photos
 import UserNotifications
+import AVFoundation
 
 struct ContentView: View {
     @EnvironmentObject private var notifications: NotificationManager
@@ -17,6 +18,7 @@ struct ContentView: View {
     @State private var showingCreatePerson = false
     @State private var healthStatus = "Not checked"
     @State private var isCheckingHealth = false
+    @State private var cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
     private let apiClient = APIClient()
 
@@ -89,12 +91,18 @@ struct ContentView: View {
                 ttsEnabled: $ttsEnabled,
                 patientMode: $patientMode,
                 photoAuthorizationStatus: photoWatcher.photoAuthorizationStatus,
+                cameraAuthorizationStatus: cameraAuthorizationStatus,
                 notificationAuthorizationStatus: notifications.authorizationStatus,
                 healthStatus: healthStatus,
                 isCheckingHealth: isCheckingHealth,
                 requestPhotos: {
                     Task {
                         await photoWatcher.requestPermission()
+                    }
+                },
+                requestCamera: {
+                    Task {
+                        await requestCameraPermission()
                     }
                 },
                 requestNotifications: {
@@ -138,6 +146,7 @@ struct ContentView: View {
             if phase == .active {
                 photoWatcher.startObservingIfAllowed()
                 photoWatcher.refreshForPhotoChanges()
+                cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
                 photoWatcher.onRecognitionResult = { response in
                     guard ttsEnabled else { return }
                     speechManager.speak(Self.speechText(for: response))
@@ -183,6 +192,14 @@ struct ContentView: View {
         }
     }
 
+    private func requestCameraPermission() async {
+        if cameraAuthorizationStatus == .notDetermined {
+            _ = await AVCaptureDevice.requestAccess(for: .video)
+        }
+
+        cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    }
+
     private func autoScanIfNeeded() async {
         guard photoWatcher.pendingPhotoIdentifier != nil, !photoWatcher.isProcessing else {
             return
@@ -208,11 +225,19 @@ private struct RecognitionTabView: View {
     let notifications: NotificationManager
     let onRetry: () -> Void
     let onOpenSettings: () -> Void
+    @State private var showingCamera = false
+    @State private var cameraMessage: String?
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
+                    CameraCaptureStatusView(
+                        message: cameraMessage,
+                        isProcessing: photoWatcher.isProcessing,
+                        onTakePhoto: presentCamera
+                    )
+
                     NewPhotoStatusView(
                         hasNewPhoto: photoWatcher.hasNewPhoto,
                         isProcessing: photoWatcher.isProcessing,
@@ -263,6 +288,7 @@ private struct RecognitionTabView: View {
 
                     if photoWatcher.scanIssue == nil,
                        photoWatcher.lastResult?.status != .unknown,
+                       photoWatcher.lastScanSupportsPhotoRetry,
                        (photoWatcher.lastScannedImageData != nil || photoWatcher.lastResult != nil) {
                         Button(action: onRetry) {
                             Label("Scan Again", systemImage: "arrow.clockwise")
@@ -277,7 +303,86 @@ private struct RecognitionTabView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Recognition")
+            .sheet(isPresented: $showingCamera) {
+                CameraCaptureView(
+                    onCapture: { imageData in
+                        showingCamera = false
+                        cameraMessage = nil
+                        Task {
+                            await photoWatcher.scanCapturedImage(
+                                imageData: imageData,
+                                baseURL: backendURL,
+                                notifications: notifications
+                            )
+                        }
+                    },
+                    onCancel: {
+                        showingCamera = false
+                    },
+                    onError: { error in
+                        cameraMessage = error.localizedDescription
+                        showingCamera = false
+                    }
+                )
+                .ignoresSafeArea()
+            }
         }
+    }
+
+    private func presentCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            cameraMessage = CameraCaptureError.unavailable.localizedDescription
+            return
+        }
+
+        showingCamera = true
+    }
+}
+
+private struct CameraCaptureStatusView: View {
+    let message: String?
+    let isProcessing: Bool
+    let onTakePhoto: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                if isProcessing {
+                    ProgressView()
+                } else {
+                    Image(systemName: "camera")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Camera Capture")
+                        .font(.headline)
+                    Text(isProcessing ? "Nemo is sending the captured photo to the backend." : "Take a photo directly inside Nemo.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+
+            if let message {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(action: onTakePhoto) {
+                Label("Take Photo", systemImage: "camera.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(isProcessing)
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -706,10 +811,12 @@ private struct SettingsTabView: View {
     @Binding var ttsEnabled: Bool
     @Binding var patientMode: Bool
     let photoAuthorizationStatus: PHAuthorizationStatus
+    let cameraAuthorizationStatus: AVAuthorizationStatus
     let notificationAuthorizationStatus: UNAuthorizationStatus
     let healthStatus: String
     let isCheckingHealth: Bool
     let requestPhotos: () -> Void
+    let requestCamera: () -> Void
     let requestNotifications: () -> Void
     let checkHealth: () -> Void
 
@@ -751,6 +858,11 @@ private struct SettingsTabView: View {
                     }
                     StatusLine(title: "Photos", value: photoStatusText)
 
+                    Button(action: requestCamera) {
+                        Label("Request Camera Access", systemImage: "camera")
+                    }
+                    StatusLine(title: "Camera", value: cameraStatusText)
+
                     Button(action: requestNotifications) {
                         Label("Request Notifications", systemImage: "bell")
                     }
@@ -767,6 +879,21 @@ private struct SettingsTabView: View {
             return "Authorized"
         case .limited:
             return "Limited"
+        case .denied:
+            return "Denied"
+        case .restricted:
+            return "Restricted"
+        case .notDetermined:
+            return "Not determined"
+        @unknown default:
+            return "Unknown"
+        }
+    }
+
+    private var cameraStatusText: String {
+        switch cameraAuthorizationStatus {
+        case .authorized:
+            return "Authorized"
         case .denied:
             return "Denied"
         case .restricted:

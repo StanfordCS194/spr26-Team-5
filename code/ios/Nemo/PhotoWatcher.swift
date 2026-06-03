@@ -15,6 +15,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     @Published var lastCompletedScanAt: Date?
     @Published var pendingPhotoIdentifier: String?
     @Published var recognitionRuns: [RecognitionRun] = []
+    @Published var lastScanSupportsPhotoRetry = false
 
     var onRecognitionResult: ((RecognitionResponse) -> Void)?
 
@@ -92,6 +93,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             guard let asset = newestUnprocessedImageAsset() else {
                 hasNewPhoto = false
                 latestInsertedPhotoID = nil
+                lastScanSupportsPhotoRetry = false
                 scanIssue = nil
                 lastScanMessage = nil
                 return
@@ -121,6 +123,74 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
 
         do {
             try await scan(asset: asset, markAsProcessed: false, baseURL: baseURL, notifications: notifications)
+        } catch {
+            scanIssue = scanIssue(for: error)
+        }
+    }
+
+    func scanCapturedImage(imageData: Data, baseURL: String, notifications: NotificationManager) async {
+        guard !isProcessing else {
+            return
+        }
+
+        isProcessing = true
+        defer { isProcessing = false }
+
+        do {
+            let thumbnailData = try thumbnailData(
+                from: imageData,
+                targetSize: Self.historyThumbnailTargetSize,
+                compressionQuality: 0.72
+            )
+            lastScannedImageData = thumbnailData
+
+            let response: RecognitionResponse
+            do {
+                response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
+            } catch let error as APIClientError where error.statusCode == 400 && error.message.localizedCaseInsensitiveContains("No face detected") {
+                lastCompletedScanAt = Date()
+                hasNewPhoto = false
+                latestInsertedPhotoID = nil
+                pendingPhotoIdentifier = nil
+                lastScanSupportsPhotoRetry = false
+                lastResult = nil
+                pendingUnknownImageData = nil
+                lastScanMessage = nil
+                scanIssue = .noFaceDetected
+                return
+            }
+
+            lastCompletedScanAt = Date()
+            lastResult = response
+            onRecognitionResult?(response)
+            hasNewPhoto = false
+            latestInsertedPhotoID = nil
+            pendingPhotoIdentifier = nil
+            lastScanSupportsPhotoRetry = false
+            scanIssue = nil
+            lastScanMessage = scanSummary(for: response)
+            recognitionRuns.insert(
+                RecognitionRun(
+                    thumbnailData: thumbnailData,
+                    result: response,
+                    photoCreatedAt: nil,
+                    photoModifiedAt: nil
+                ),
+                at: 0
+            )
+            recognitionRuns = Array(recognitionRuns.prefix(50))
+            saveRecognitionRuns()
+
+            switch response.status {
+            case .recognized:
+                pendingUnknownImageData = nil
+                if let person = response.person {
+                    notifications.notifyRecognized(person: person)
+                }
+            case .unknown:
+                pendingUnknownImageData = imageData
+                notifications.notifyUnknown()
+            }
         } catch {
             scanIssue = scanIssue(for: error)
         }
@@ -312,6 +382,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             hasNewPhoto = false
             latestInsertedPhotoID = nil
             pendingPhotoIdentifier = nil
+            lastScanSupportsPhotoRetry = true
             lastResult = nil
             pendingUnknownImageData = nil
             lastScanMessage = nil
@@ -328,6 +399,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         hasNewPhoto = false
         latestInsertedPhotoID = nil
         pendingPhotoIdentifier = nil
+        lastScanSupportsPhotoRetry = true
         scanIssue = nil
         lastScanMessage = scanSummary(for: response)
         recognitionRuns.insert(
@@ -419,6 +491,25 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         }
     }
 
+    private func thumbnailData(from imageData: Data, targetSize: CGSize, compressionQuality: CGFloat) throws -> Data {
+        guard let image = UIImage(data: imageData) else {
+            throw PhotoWatcherError.imageConversionFailed
+        }
+
+        let scale = min(targetSize.width / image.size.width, targetSize.height / image.size.height, 1)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let thumbnail = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+
+        guard let data = thumbnail.jpegData(compressionQuality: compressionQuality) else {
+            throw PhotoWatcherError.imageConversionFailed
+        }
+
+        return data
+    }
+
     private func markProcessed(_ asset: PHAsset) {
         var ids = UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? []
         ids.append(asset.localIdentifier)
@@ -444,6 +535,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         latestInsertedPhotoID = nil
         pendingPhotoIdentifier = nil
         hasNewPhoto = false
+        lastScanSupportsPhotoRetry = false
     }
 
     private func isRecentEnough(_ asset: PHAsset) -> Bool {
