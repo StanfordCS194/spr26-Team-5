@@ -209,7 +209,6 @@ private struct RecognitionTabView: View {
     let onRetry: () -> Void
     let onOpenSettings: () -> Void
     @State private var showingCamera = false
-    @State private var capturedCameraImageData: Data?
     @State private var cameraMessage: String?
 
     var body: some View {
@@ -217,8 +216,8 @@ private struct RecognitionTabView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     CameraCaptureStatusView(
-                        capturedImageData: capturedCameraImageData,
                         message: cameraMessage,
+                        isProcessing: photoWatcher.isProcessing,
                         onTakePhoto: presentCamera
                     )
 
@@ -272,6 +271,7 @@ private struct RecognitionTabView: View {
 
                     if photoWatcher.scanIssue == nil,
                        photoWatcher.lastResult?.status != .unknown,
+                       photoWatcher.lastScanSupportsPhotoRetry,
                        (photoWatcher.lastScannedImageData != nil || photoWatcher.lastResult != nil) {
                         Button(action: onRetry) {
                             Label("Scan Again", systemImage: "arrow.clockwise")
@@ -289,9 +289,15 @@ private struct RecognitionTabView: View {
             .sheet(isPresented: $showingCamera) {
                 CameraCaptureView(
                     onCapture: { imageData in
-                        capturedCameraImageData = imageData
-                        cameraMessage = "Photo captured. Recognition wiring is not connected yet."
                         showingCamera = false
+                        cameraMessage = nil
+                        Task {
+                            await photoWatcher.scanCapturedImage(
+                                imageData: imageData,
+                                baseURL: backendURL,
+                                notifications: notifications
+                            )
+                        }
                     },
                     onCancel: {
                         showingCamera = false
@@ -317,30 +323,30 @@ private struct RecognitionTabView: View {
 }
 
 private struct CameraCaptureStatusView: View {
-    let capturedImageData: Data?
     let message: String?
+    let isProcessing: Bool
     let onTakePhoto: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 12) {
-                Image(systemName: "camera")
-                    .font(.title2)
-                    .foregroundStyle(.blue)
+                if isProcessing {
+                    ProgressView()
+                } else {
+                    Image(systemName: "camera")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                }
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Camera Capture")
                         .font(.headline)
-                    Text("Take a photo directly inside Nemo.")
+                    Text(isProcessing ? "Nemo is sending the captured photo to the backend." : "Take a photo directly inside Nemo.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
-            }
-
-            if let capturedImageData {
-                PhotoPreview(imageData: capturedImageData)
             }
 
             if let message {
@@ -355,6 +361,7 @@ private struct CameraCaptureStatusView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .disabled(isProcessing)
         }
         .padding()
         .background(Color(.secondarySystemGroupedBackground))
