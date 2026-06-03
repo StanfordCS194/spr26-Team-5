@@ -28,6 +28,8 @@ struct ContentView: View {
                 if patientMode {
                     PatientModeView(
                         photoWatcher: photoWatcher,
+                        backendURL: backendURL,
+                        notifications: notifications,
                         onRetry: {
                             Task {
                                 await photoWatcher.retryLatestPhoto(

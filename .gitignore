@@ -5,3 +5,7 @@ __pycache__/
 .venv/
 .uv-venv/
 backend/data/
+
+# Xcode user data
+**/*.xcuserstate
+**/*.xcuserdatad/
