@@ -7,6 +7,7 @@ struct PatientModeView: View {
     let notifications: NotificationManager
     let onRetry: () -> Void
     @State private var showingCamera = false
+    @State private var showingMemories = false
     @State private var cameraMessage: String?
 
     var body: some View {
@@ -26,7 +27,8 @@ struct PatientModeView: View {
                 Spacer()
                 Spacer()
             }
-            .padding(32)
+            .padding(.vertical, 32)
+            .padding(.horizontal, 46)
         }
         .sheet(isPresented: $showingCamera) {
             CameraCaptureView(
@@ -50,6 +52,11 @@ struct PatientModeView: View {
                 }
             )
             .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showingMemories) {
+            if let person = photoWatcher.lastResult?.person {
+                MemoriesGalleryView(person: person, backendURL: backendURL)
+            }
         }
     }
 
@@ -77,13 +84,77 @@ struct PatientModeView: View {
     }
 
     private func recognizedView(person: Person) -> some View {
-        VStack(spacing: 28) {
-            Image(systemName: "person.fill.checkmark").font(.system(size: 80)).foregroundStyle(.green)
-            Text(person.name).font(.system(size: 52, weight: .bold)).multilineTextAlignment(.center)
-            if !person.description.isEmpty {
-                Text(person.description).font(.system(size: 28)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        VStack(spacing: 12) {
+            PersonReferenceImageView(
+                personID: person.id,
+                backendURL: backendURL,
+                size: 210
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.white, .green)
+                    .background(Circle().fill(Color(.systemBackground)))
             }
+
+            VStack(spacing: 8) {
+                Text(person.name)
+                    .font(.system(size: 52, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.65)
+
+                if !person.relationship.isEmpty {
+                    Label(person.relationship.capitalized, systemImage: "person.text.rectangle")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.green.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+
+                if !person.description.isEmpty {
+                    ScrollView {
+                        Text(person.description)
+                            .font(.system(size: 26))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
+                    .frame(minHeight: 170, maxHeight: 320)
+                    .scrollIndicators(.visible)
+                }
+            }
+
+            Button {
+                showingMemories = true
+            } label: {
+                Label("Look Through Memories", systemImage: "photo.stack")
+                    .font(.system(size: 20, weight: .semibold))
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .tint(.green)
+
+            Button(action: presentCamera) {
+                Label("Take Another Photo", systemImage: "camera.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 9)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .tint(.blue)
+            .padding(.top, 4)
+
+            Spacer()
+                .frame(height: 34)
         }
+        .padding(.top, 24)
     }
 
     private var unknownView: some View {

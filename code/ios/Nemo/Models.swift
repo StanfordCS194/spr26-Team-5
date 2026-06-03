@@ -39,6 +39,26 @@ struct PersonUpdateRequest: Codable {
     let notes: String
 }
 
+struct PersonMemory: Codable, Identifiable, Equatable {
+    let id: String
+    let personID: String
+    let mediaType: String
+    let fileName: String
+    let createdAt: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case personID = "person_id"
+        case mediaType = "media_type"
+        case fileName = "file_name"
+        case createdAt = "created_at"
+    }
+
+    var isVideo: Bool {
+        mediaType.hasPrefix("video/")
+    }
+}
+
 struct RecognitionResponse: Codable, Equatable {
     let status: RecognitionStatus
     let person: Person?
