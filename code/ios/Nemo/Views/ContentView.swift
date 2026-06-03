@@ -263,6 +263,7 @@ private struct RecognitionTabView: View {
 
                     if let result = photoWatcher.lastResult {
                         RecognitionResultView(
+                            backendURL: backendURL,
                             result: result,
                             isChangingPerson: isChangingPerson,
                             onChangePerson: result.status == .recognized ? {
@@ -641,45 +642,78 @@ private struct EmptyRecognitionView: View {
 }
 
 private struct RecognitionResultView: View {
+    let backendURL: String
     let result: RecognitionResponse
     let isChangingPerson: Bool
     let onChangePerson: (() -> Void)?
 
     var body: some View {
+        if result.status == .recognized, let person = result.person {
+            recognizedBody(person: person)
+        } else {
+            unknownBody
+        }
+    }
+
+    private func recognizedBody(person: Person) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Label(result.status.rawValue.capitalized, systemImage: result.status == .recognized ? "person.fill.checkmark" : "questionmark.circle")
-                    .font(.headline)
-                    .foregroundStyle(result.status == .recognized ? .green : .orange)
-                Spacer()
-                Text("Faces \(result.faceCount)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
-            if let person = result.person {
-                if !person.relationship.isEmpty {
-                    Text(person.relationship.capitalized)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Color.green)
-                        .clipShape(Capsule())
+            HStack(alignment: .top, spacing: 14) {
+                PersonReferenceImageView(
+                    personID: person.id,
+                    backendURL: backendURL,
+                    size: 96
+                )
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white, .green)
+                        .background(Circle().fill(Color(.secondarySystemGroupedBackground)))
                 }
-                Text(person.name)
-                    .font(.title3.weight(.semibold))
-                Text(person.description.isEmpty ? "No description." : person.description)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("No matching person found.")
-                    .foregroundStyle(.secondary)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(person.name)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+
+                        Spacer(minLength: 0)
+                    }
+
+                    if !person.relationship.isEmpty {
+                        Label(person.relationship.capitalized, systemImage: "person.text.rectangle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.green)
+                    }
+
+                    Text(person.description.isEmpty ? "No description saved." : person.description)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
-            if let distance = result.distance {
-                Text("Distance \(String(format: "%.3f", distance))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Divider()
+
+            HStack(spacing: 10) {
+                Label("Recognized", systemImage: "person.fill.checkmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.green.opacity(0.12))
+                    .clipShape(Capsule())
+
+                Spacer()
+
+                HStack(spacing: 8) {
+                    Text("Faces \(result.faceCount)")
+                    if let distance = result.distance {
+                        Text("Distance \(String(format: "%.3f", distance))")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             if let onChangePerson {
@@ -699,6 +733,41 @@ private struct RecognitionResultView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.green.opacity(0.28), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var unknownBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Label(result.status.rawValue.capitalized, systemImage: "questionmark.circle")
+                    .font(.headline)
+                    .foregroundStyle(.orange)
+                Spacer()
+                Text("Faces \(result.faceCount)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Text("No matching person found.")
+                .foregroundStyle(.secondary)
+
+            if let distance = result.distance {
+                Text("Distance \(String(format: "%.3f", distance))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.28), lineWidth: 1)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
@@ -1147,7 +1216,7 @@ private struct StatusLine: View {
     }
 }
 
-private struct PersonReferenceImageView: View {
+struct PersonReferenceImageView: View {
     let personID: String
     let backendURL: String
     let size: CGFloat

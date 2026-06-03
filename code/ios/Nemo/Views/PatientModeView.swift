@@ -77,12 +77,36 @@ struct PatientModeView: View {
     }
 
     private func recognizedView(person: Person) -> some View {
-        VStack(spacing: 28) {
-            Image(systemName: "person.fill.checkmark").font(.system(size: 80)).foregroundStyle(.green)
-            Text(person.name).font(.system(size: 52, weight: .bold)).multilineTextAlignment(.center)
-            if !person.description.isEmpty {
-                Text(person.description).font(.system(size: 28)).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        VStack(spacing: 24) {
+            PersonReferenceImageView(
+                personID: person.id,
+                backendURL: backendURL,
+                size: 220
+            )
+            .overlay(alignment: .bottomTrailing) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 48))
+                    .foregroundStyle(.white, .green)
+                    .background(Circle().fill(Color(.systemBackground)))
             }
+
+            VStack(spacing: 12) {
+                Text(person.name)
+                    .font(.system(size: 52, weight: .bold))
+                    .multilineTextAlignment(.center)
+                    .minimumScaleFactor(0.65)
+
+                if !person.relationship.isEmpty {
+                    Label(person.relationship.capitalized, systemImage: "person.text.rectangle")
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(.green)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.green.opacity(0.12))
+                        .clipShape(Capsule())
+                }
+            }
+
             Button(action: presentCamera) {
                 Label("Take Another Photo", systemImage: "camera.fill")
                     .font(.system(size: 30, weight: .semibold))
