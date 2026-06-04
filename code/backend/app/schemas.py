@@ -25,6 +25,13 @@ class PersonMemory(BaseModel):
     created_at: str
 
 
+class FaceEncodingSummary(BaseModel):
+    id: str
+    person_id: str
+    created_at: str
+    has_image: bool
+
+
 class RecognitionResponse(BaseModel):
     status: str
     person: Person | None

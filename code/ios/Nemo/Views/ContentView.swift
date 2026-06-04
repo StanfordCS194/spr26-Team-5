@@ -1404,6 +1404,7 @@ private struct PersonDatabaseEditor: View {
     @State private var photoCount: Int = 0
     @State private var isAddingPhoto = false
     @State private var showPhotoPicker = false
+    @State private var showTrainingPhotos = false
     @State private var addPhotoError: String?
     @State private var isUpdatingReferencePhoto = false
     @State private var showReferencePhotoPicker = false
@@ -1479,6 +1480,14 @@ private struct PersonDatabaseEditor: View {
                     }
                 }
                 .disabled(isAddingPhoto)
+
+                Button {
+                    showTrainingPhotos = true
+                } label: {
+                    Label("Review Saved Photos", systemImage: "rectangle.stack.badge.person.crop")
+                }
+                .disabled(photoCount == 0)
+
                 if let addPhotoError {
                     Text(addPhotoError)
                         .font(.caption)
@@ -1560,6 +1569,15 @@ private struct PersonDatabaseEditor: View {
             PhotoPickerView { imageData in
                 Task { await uploadPhoto(imageData) }
             }
+        }
+        .sheet(isPresented: $showTrainingPhotos) {
+            TrainingPhotosView(
+                person: person,
+                backendURL: backendURL,
+                onDeleted: { _ in
+                    photoCount = max(0, photoCount - 1)
+                }
+            )
         }
         .sheet(isPresented: $showReferencePhotoPicker) {
             PhotoPickerView { imageData in

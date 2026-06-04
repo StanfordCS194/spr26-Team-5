@@ -59,6 +59,20 @@ struct PersonMemory: Codable, Identifiable, Equatable {
     }
 }
 
+struct FaceEncodingSummary: Codable, Identifiable, Equatable {
+    let id: String
+    let personID: String
+    let createdAt: String
+    let hasImage: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case personID = "person_id"
+        case createdAt = "created_at"
+        case hasImage = "has_image"
+    }
+}
+
 struct RecognitionResponse: Codable, Equatable {
     let status: RecognitionStatus
     let person: Person?
