@@ -43,7 +43,6 @@ struct ContentView: View {
     @StateObject private var photoWatcher = PhotoWatcher()
     @AppStorage("backendURL") private var backendURL = "http://127.0.0.1:8000"
     @AppStorage("ttsEnabled") private var ttsEnabled = true
-    @AppStorage("selectedExperience") private var selectedExperienceRaw = ""
 
     @State private var selectedTab = 0
     @State private var selectedPersonID: String?
@@ -51,134 +50,149 @@ struct ContentView: View {
     @State private var healthStatus = "Not checked"
     @State private var isCheckingHealth = false
     @State private var cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    @State private var selectedExperience: AppExperience?
+    @State private var caregiverAccessGranted = false
 
     private let apiClient = APIClient()
-
-    private var selectedExperience: AppExperience? {
-        AppExperience(rawValue: selectedExperienceRaw)
-    }
+    private let caregiverPIN = "1234"
 
     var body: some View {
         Group {
-            if let selectedExperience {
-                TabView(selection: $selectedTab) {
-                    Group {
-                        if selectedExperience == .patient {
-                            PatientModeView(
-                                photoWatcher: photoWatcher,
-                                backendURL: backendURL,
-                                notifications: notifications,
-                                onRetry: {
-                                    Task {
-                                        await photoWatcher.retryLatestPhoto(
-                                            baseURL: backendURL,
-                                            notifications: notifications
-                                        )
-                                    }
-                                }
-                            )
-                        } else {
-                            RecognitionTabView(
-                                photoWatcher: photoWatcher,
-                                backendURL: backendURL,
-                                showingCreatePerson: $showingCreatePerson,
-                                notifications: notifications,
-                                onRetry: {
-                                    Task {
-                                        await photoWatcher.retryLatestPhoto(
-                                            baseURL: backendURL,
-                                            notifications: notifications
-                                        )
-                                    }
-                                },
-                                onOpenSettings: {
-                                    selectedTab = 2
-                                }
-                            )
-                        }
-                    }
-                    .tabItem {
-                        Label("Recognize", systemImage: "camera.viewfinder")
-                    }
-                    .tag(0)
-
-                    HistoryTabView(
-                        backendURL: backendURL,
-                        runs: photoWatcher.recognitionRuns,
-                        onPersonUpdated: { person in
-                            photoWatcher.updatePersonInHistory(person)
+            if let activeExperience = selectedExperience {
+                if activeExperience == .caregiver && !caregiverAccessGranted {
+                    CaregiverAccessView(
+                        expectedPIN: caregiverPIN,
+                        onAuthenticated: {
+                            caregiverAccessGranted = true
+                            selectedTab = 0
                         },
-                        onPersonDeleted: { personID in
-                            photoWatcher.removePersonFromHistory(personID: personID)
-                        },
-                        onDatabaseLoaded: { people in
-                            photoWatcher.syncHistory(with: people)
-                        },
-                        onDeleteRun: { runID in
-                            photoWatcher.deleteRecognitionRun(id: runID)
-                        },
-                        onDeleteAllRuns: {
-                            photoWatcher.deleteAllRecognitionRuns()
-                        }
-                    )
-                    .tabItem {
-                        Label("History", systemImage: "clock")
-                    }
-                    .tag(1)
-
-                    SettingsTabView(
-                        backendURL: $backendURL,
-                        ttsEnabled: $ttsEnabled,
-                        selectedExperienceTitle: selectedExperience.title,
-                        photoAuthorizationStatus: photoWatcher.photoAuthorizationStatus,
-                        cameraAuthorizationStatus: cameraAuthorizationStatus,
-                        notificationAuthorizationStatus: notifications.authorizationStatus,
-                        healthStatus: healthStatus,
-                        isCheckingHealth: isCheckingHealth,
-                        requestPhotos: {
-                            Task {
-                                await photoWatcher.requestPermission()
-                            }
-                        },
-                        requestCamera: {
-                            Task {
-                                await requestCameraPermission()
-                            }
-                        },
-                        requestNotifications: {
-                            Task {
-                                await notifications.requestPermission()
-                            }
-                        },
-                        checkHealth: {
-                            Task {
-                                await checkHealth()
-                            }
-                        },
-                        chooseExperience: {
-                            selectedExperienceRaw = ""
+                        onBack: {
+                            selectedExperience = nil
                             selectedTab = 0
                         }
                     )
-                    .tabItem {
-                        Label("Settings", systemImage: "gearshape")
-                    }
-                    .tag(2)
-                }
-                .sheet(isPresented: $showingCreatePerson) {
-                    CreatePersonView(
-                        backendURL: backendURL,
-                        imageData: photoWatcher.pendingUnknownImageData,
-                        onCreated: { person in
-                            photoWatcher.clearPendingUnknown()
-                            selectedPersonID = person.id
-                            selectedTab = 1
+                } else {
+                    TabView(selection: $selectedTab) {
+                        Group {
+                            if activeExperience == .patient {
+                                PatientModeView(
+                                    photoWatcher: photoWatcher,
+                                    backendURL: backendURL,
+                                    notifications: notifications,
+                                    onRetry: {
+                                        Task {
+                                            await photoWatcher.retryLatestPhoto(
+                                                baseURL: backendURL,
+                                                notifications: notifications
+                                            )
+                                        }
+                                    }
+                                )
+                            } else {
+                                RecognitionTabView(
+                                    photoWatcher: photoWatcher,
+                                    backendURL: backendURL,
+                                    showingCreatePerson: $showingCreatePerson,
+                                    notifications: notifications,
+                                    onRetry: {
+                                        Task {
+                                            await photoWatcher.retryLatestPhoto(
+                                                baseURL: backendURL,
+                                                notifications: notifications
+                                            )
+                                        }
+                                    },
+                                    onOpenSettings: {
+                                        selectedTab = 2
+                                    }
+                                )
+                            }
                         }
-                    )
+                        .tabItem {
+                            Label("Recognize", systemImage: "camera.viewfinder")
+                        }
+                        .tag(0)
+
+                        HistoryTabView(
+                            backendURL: backendURL,
+                            runs: photoWatcher.recognitionRuns,
+                            onPersonUpdated: { person in
+                                photoWatcher.updatePersonInHistory(person)
+                            },
+                            onPersonDeleted: { personID in
+                                photoWatcher.removePersonFromHistory(personID: personID)
+                            },
+                            onDatabaseLoaded: { people in
+                                photoWatcher.syncHistory(with: people)
+                            },
+                            onDeleteRun: { runID in
+                                photoWatcher.deleteRecognitionRun(id: runID)
+                            },
+                            onDeleteAllRuns: {
+                                photoWatcher.deleteAllRecognitionRuns()
+                            }
+                        )
+                        .tabItem {
+                            Label("History", systemImage: "clock")
+                        }
+                        .tag(1)
+
+                        SettingsTabView(
+                            backendURL: $backendURL,
+                            ttsEnabled: $ttsEnabled,
+                            selectedExperienceTitle: activeExperience.title,
+                            photoAuthorizationStatus: photoWatcher.photoAuthorizationStatus,
+                            cameraAuthorizationStatus: cameraAuthorizationStatus,
+                            notificationAuthorizationStatus: notifications.authorizationStatus,
+                            healthStatus: healthStatus,
+                            isCheckingHealth: isCheckingHealth,
+                            requestPhotos: {
+                                Task {
+                                    await photoWatcher.requestPermission()
+                                }
+                            },
+                            requestCamera: {
+                                Task {
+                                    await requestCameraPermission()
+                                }
+                            },
+                            requestNotifications: {
+                                Task {
+                                    await notifications.requestPermission()
+                                }
+                            },
+                            checkHealth: {
+                                Task {
+                                    await checkHealth()
+                                }
+                            },
+                            chooseExperience: {
+                                caregiverAccessGranted = false
+                                selectedExperience = nil
+                                selectedTab = 0
+                            }
+                        )
+                        .tabItem {
+                            Label("Settings", systemImage: "gearshape")
+                        }
+                        .tag(2)
+                    }
+                    .sheet(isPresented: $showingCreatePerson) {
+                        CreatePersonView(
+                            backendURL: backendURL,
+                            imageData: photoWatcher.pendingUnknownImageData,
+                            onCreated: { person in
+                                photoWatcher.clearPendingUnknown()
+                                selectedPersonID = person.id
+                                selectedTab = 1
+                            }
+                        )
+                    }
                 }
             } else {
                 ExperienceSelectionView { experience in
-                    selectedExperienceRaw = experience.rawValue
+                    selectedExperience = experience
+                    caregiverAccessGranted = experience == .patient
                     selectedTab = 0
                 }
             }
@@ -265,6 +279,86 @@ struct ContentView: View {
             return person.description.isEmpty ? "This is \(person.name)." : "This is \(person.name). \(person.description)"
         case .unknown:
             return "Unknown person detected."
+        }
+    }
+}
+
+private struct CaregiverAccessView: View {
+    let expectedPIN: String
+    let onAuthenticated: () -> Void
+    let onBack: () -> Void
+
+    @State private var pin = ""
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                LinearGradient(
+                    colors: [Color(.systemGroupedBackground), Color.green.opacity(0.08)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                VStack(alignment: .leading, spacing: 24) {
+                    Spacer(minLength: 0)
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Caregiver Access")
+                            .font(.system(size: 34, weight: .bold))
+                        Text("Enter the caregiver PIN to open admin tools.")
+                            .font(.title3)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    VStack(alignment: .leading, spacing: 14) {
+                        SecureField("PIN", text: $pin)
+                            .textContentType(.oneTimeCode)
+                            .keyboardType(.numberPad)
+                            .padding()
+                            .background(Color(.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+
+                        Text("Demo PIN: \(expectedPIN)")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                        }
+                    }
+
+                    Button(action: submit) {
+                        Label("Continue", systemImage: "lock.open")
+                            .font(.headline)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button(action: onBack) {
+                        Label("Back", systemImage: "chevron.left")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+
+                    Spacer()
+                }
+                .padding(24)
+            }
+            .navigationBarHidden(true)
+        }
+    }
+
+    private func submit() {
+        if pin == expectedPIN {
+            errorMessage = nil
+            onAuthenticated()
+        } else {
+            errorMessage = "Incorrect PIN. Try again."
         }
     }
 }
