@@ -20,6 +20,7 @@
 		A10000000000000000000011 /* Views/PhotoPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000013 /* Views/PhotoPickerView.swift */; };
 		A10000000000000000000012 /* Views/CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* Views/CameraCaptureView.swift */; };
 		A10000000000000000000013 /* Views/MemoryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Views/MemoryViews.swift */; };
+		A10000000000000000000014 /* VoiceCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* VoiceCommandManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -38,6 +39,7 @@
 		A20000000000000000000013 /* Views/PhotoPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/PhotoPickerView.swift; sourceTree = "<group>"; };
 		A20000000000000000000014 /* Views/CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/CameraCaptureView.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* Views/MemoryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/MemoryViews.swift; sourceTree = "<group>"; };
+		A20000000000000000000016 /* VoiceCommandManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -69,6 +71,7 @@
 				A20000000000000000000004 /* NotificationManager.swift */,
 				A20000000000000000000005 /* PhotoWatcher.swift */,
 				A20000000000000000000011 /* SpeechManager.swift */,
+				A20000000000000000000016 /* VoiceCommandManager.swift */,
 				A40000000000000000000004 /* Views */,
 			);
 			path = Nemo;
@@ -177,6 +180,7 @@
 				A10000000000000000000011 /* Views/PhotoPickerView.swift in Sources */,
 				A10000000000000000000012 /* Views/CameraCaptureView.swift in Sources */,
 				A10000000000000000000013 /* Views/MemoryViews.swift in Sources */,
+				A10000000000000000000014 /* VoiceCommandManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

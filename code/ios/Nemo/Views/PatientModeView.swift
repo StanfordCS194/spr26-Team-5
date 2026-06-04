@@ -5,6 +5,7 @@ struct PatientModeView: View {
     @ObservedObject var photoWatcher: PhotoWatcher
     let backendURL: String
     let notifications: NotificationManager
+    let voiceCommandsEnabled: Bool
     let onRetry: () -> Void
     @State private var showingCamera = false
     @State private var showingMemories = false
@@ -29,15 +30,19 @@ struct PatientModeView: View {
                 }
                 Spacer()
                 Spacer()
-                voiceCommandButton
-                    .padding(.bottom, 24)
+                if voiceCommandsEnabled {
+                    voiceCommandButton
+                        .padding(.bottom, 24)
+                }
             }
             .padding(.vertical, 32)
             .padding(.horizontal, 46)
         }
         .onAppear {
-            voiceCommandManager.requestPermissions()
-            voiceCommandManager.startListening(baseURL: backendURL, speechManager: speechManager)
+            if voiceCommandsEnabled {
+                voiceCommandManager.requestPermissions()
+                voiceCommandManager.startListening(baseURL: backendURL, speechManager: speechManager)
+            }
             NotificationCenter.default.addObserver(
                 forName: .triggerRecognition,
                 object: nil,
@@ -68,6 +73,14 @@ struct PatientModeView: View {
                 }
             )
             .ignoresSafeArea()
+        }
+        .onChange(of: voiceCommandsEnabled) { _, enabled in
+            if enabled {
+                voiceCommandManager.requestPermissions()
+                voiceCommandManager.startListening(baseURL: backendURL, speechManager: speechManager)
+            } else {
+                voiceCommandManager.stopListening()
+            }
         }
         .sheet(isPresented: $showingMemories) {
             if let person = photoWatcher.lastResult?.person {

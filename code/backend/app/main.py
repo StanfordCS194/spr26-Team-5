@@ -247,15 +247,10 @@ def create_app(
                 action="recognize",
                 message="Point the camera at the person",
             )
-        elif any(phrase in text for phrase in ["call for help", "help", "emergency"]):
-            return VoiceCommandResponse(
-                action="call_caregiver",
-                message="Contacting your caregiver now",
-            )
         else:
             return VoiceCommandResponse(
                 action="unknown",
-                message="Sorry, I didn't understand that command. Try saying who is this or call for help",
+                message="Sorry, I didn't understand that command. Try saying who is this",
             )
     return app
 
