@@ -91,7 +91,7 @@ final class VoiceCommandManager: ObservableObject {
             if response.action == "recognize" {
                 NotificationCenter.default.post(name: .triggerRecognition, object: nil)
             } else if response.action == "call_caregiver" {
-                if let url = URL(string: "tel://911") {
+                if let url = URL(string: "tel://5550000000") {
                     await UIApplication.shared.open(url)
                 }
             }
