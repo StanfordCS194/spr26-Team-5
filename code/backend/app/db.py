@@ -14,6 +14,14 @@ class StoredEncoding:
     encoding: list[float]
 
 
+@dataclass(frozen=True)
+class FaceEncodingSummary:
+    id: str
+    person_id: str
+    created_at: str
+    has_image: bool
+
+
 class Database:
     def __init__(self, path: str | Path):
         self.path = Path(path)
@@ -71,6 +79,14 @@ class Database:
                 connection.execute("ALTER TABLE people ADD COLUMN last_seen TEXT")
             if "notes" not in columns:
                 connection.execute("ALTER TABLE people ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+            encoding_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(face_encodings)").fetchall()
+            }
+            if "image" not in encoding_columns:
+                connection.execute("ALTER TABLE face_encodings ADD COLUMN image BLOB")
+            if "image_content_type" not in encoding_columns:
+                connection.execute("ALTER TABLE face_encodings ADD COLUMN image_content_type TEXT")
 
     def create_person(self, name: str, description: str, relationship: str = "", notes: str = "", reference_image: bytes | None = None) -> dict:
         person_id = str(uuid.uuid4())
@@ -93,17 +109,58 @@ class Database:
             "last_seen": None,
         }
 
-    def add_face_encoding(self, person_id: str, encoding: list[float]) -> str:
+    def add_face_encoding(
+        self,
+        person_id: str,
+        encoding: list[float],
+        image: bytes | None = None,
+        image_content_type: str | None = None,
+    ) -> str:
         encoding_id = str(uuid.uuid4())
         with self.connect() as connection:
             connection.execute(
                 """
-                INSERT INTO face_encodings(id, person_id, encoding_json, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO face_encodings(id, person_id, encoding_json, created_at, image, image_content_type)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (encoding_id, person_id, json.dumps(encoding), _now()),
+                (encoding_id, person_id, json.dumps(encoding), _now(), image, image_content_type),
             )
         return encoding_id
+
+    def list_face_encoding_summaries(self, person_id: str) -> list[FaceEncodingSummary]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, person_id, created_at, image IS NOT NULL AS has_image
+                FROM face_encodings
+                WHERE person_id = ?
+                ORDER BY created_at DESC
+                """,
+                (person_id,),
+            ).fetchall()
+        return [
+            FaceEncodingSummary(
+                id=row["id"],
+                person_id=row["person_id"],
+                created_at=row["created_at"],
+                has_image=bool(row["has_image"]),
+            )
+            for row in rows
+        ]
+
+    def get_face_encoding_image(self, person_id: str, encoding_id: str) -> tuple[bytes, str] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT image, image_content_type
+                FROM face_encodings
+                WHERE id = ? AND person_id = ?
+                """,
+                (encoding_id, person_id),
+            ).fetchone()
+        if row is None or row["image"] is None:
+            return None
+        return row["image"], row["image_content_type"] or "image/jpeg"
 
     def delete_face_encoding(self, person_id: str, encoding_id: str) -> bool:
         with self.connect() as connection:
