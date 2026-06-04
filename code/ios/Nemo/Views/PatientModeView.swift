@@ -37,6 +37,13 @@ struct PatientModeView: View {
         }
         .onAppear {
             voiceCommandManager.requestPermissions()
+            NotificationCenter.default.addObserver(
+                forName: .triggerRecognition,
+                object: nil,
+                queue: .main
+            ) { _ in
+                presentCamera()
+            }
         }
         .sheet(isPresented: $showingCamera) {
             CameraCaptureView(
@@ -93,14 +100,6 @@ struct PatientModeView: View {
                     .foregroundStyle(.secondary)
             }
         }
-    }
-
-    private func presentCamera() {
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            cameraMessage = CameraCaptureError.unavailable.localizedDescription
-            return
-        }
-        showingCamera = true
     }
 
     private var backgroundColor: Color {

@@ -75,8 +75,20 @@ final class VoiceCommandManager: ObservableObject {
             let response = try await apiClient.voiceCommand(text: text, baseURL: baseURL)
             lastCommand = response
             speechManager.speak(response.message)
+            
+            if response.action == "recognize" {
+                NotificationCenter.default.post(name: .triggerRecognition, object: nil)
+            } else if response.action == "call_caregiver" {
+                if let url = URL(string: "tel://911") {
+                    await UIApplication.shared.open(url)
+                }
+            }
         } catch {
             speechManager.speak("Sorry, I could not process that command")
         }
     }
+}
+
+extension Notification.Name {
+    static let triggerRecognition = Notification.Name("triggerRecognition")
 }
