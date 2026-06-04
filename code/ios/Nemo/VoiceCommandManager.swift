@@ -11,6 +11,7 @@ final class VoiceCommandManager: ObservableObject {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
     private let audioEngine = AVAudioEngine()
+    private var wakeWordDetected = false
 
     func requestPermissions() {
         SFSpeechRecognizer.requestAuthorization { _ in }
@@ -35,6 +36,7 @@ final class VoiceCommandManager: ObservableObject {
         recognitionRequest = nil
         recognitionTask = nil
         isListening = false
+        wakeWordDetected = false
     }
 
     private func beginRecognition(baseURL: String, speechManager: SpeechManager) {
@@ -51,10 +53,20 @@ final class VoiceCommandManager: ObservableObject {
             guard let self else { return }
             if let result {
                 let text = result.bestTranscription.formattedString.lowercased()
-                if text.contains("who is this") || text.contains("call for help") {
-                    self.stopListening()
-                    Task {
-                        await self.handleCommand(text: text, baseURL: baseURL, speechManager: speechManager)
+                if text.contains("hey nemo") {
+                    if text.contains("who is this") {
+                        self.stopListening()
+                        Task {
+                            await self.handleCommand(text: "who is this", baseURL: baseURL, speechManager: speechManager)
+                        }
+                    } else if text.contains("call for help") {
+                        self.stopListening()
+                        Task {
+                            await self.handleCommand(text: "call for help", baseURL: baseURL, speechManager: speechManager)
+                        }
+                    } else if !self.wakeWordDetected {
+                        self.wakeWordDetected = true
+                        speechManager.speak("Yes, how can I help?")
                     }
                 }
             }

@@ -37,6 +37,7 @@ struct PatientModeView: View {
         }
         .onAppear {
             voiceCommandManager.requestPermissions()
+            voiceCommandManager.startListening(baseURL: backendURL, speechManager: speechManager)
             NotificationCenter.default.addObserver(
                 forName: .triggerRecognition,
                 object: nil,
