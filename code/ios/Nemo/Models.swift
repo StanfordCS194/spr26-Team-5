@@ -32,6 +32,19 @@ struct Person: Codable, Identifiable, Equatable {
     }
 }
 
+extension Person {
+    var isCloseFriend: Bool {
+        relationship.localizedCaseInsensitiveContains("close friend")
+    }
+
+    var patientRelationshipLabel: String? {
+        if isCloseFriend {
+            return "Close Friend"
+        }
+        return relationship.isEmpty ? nil : relationship.capitalized
+    }
+}
+
 struct PersonUpdateRequest: Codable {
     let name: String
     let description: String
