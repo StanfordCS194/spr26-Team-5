@@ -12,8 +12,10 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     @Published var pendingUnknownImageData: Data?
     @Published var lastScanMessage: String?
     @Published var scanIssue: ScanIssue?
+    @Published var lastCompletedScanAt: Date?
     @Published var pendingPhotoIdentifier: String?
     @Published var recognitionRuns: [RecognitionRun] = []
+    @Published var lastScanSupportsPhotoRetry = false
 
     var onRecognitionResult: ((RecognitionResponse) -> Void)?
 
@@ -21,6 +23,9 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     private var isObserving = false
     private var recentImageFetchResult: PHFetchResult<PHAsset>?
     private var latestInsertedPhotoID: String?
+    private var lastScannedPhotoID: String?
+    private(set) var lastScannedRecognitionImageData: Data?
+    private var autoSavedRecognitionEncoding: SavedRecognitionEncoding?
     private var knownRecentPhotoIDs = Set<String>()
 
     override init() {
@@ -91,51 +96,93 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             guard let asset = newestUnprocessedImageAsset() else {
                 hasNewPhoto = false
                 latestInsertedPhotoID = nil
+                lastScanSupportsPhotoRetry = false
                 scanIssue = nil
                 lastScanMessage = nil
                 return
             }
 
-            let imageData = try await jpegData(
-                for: asset,
-                targetSize: Self.scanImageTargetSize,
-                compressionQuality: 0.84
-            )
-            let thumbnailData = try await jpegData(
-                for: asset,
+            try await scan(asset: asset, markAsProcessed: true, baseURL: baseURL, notifications: notifications)
+        } catch {
+            scanIssue = scanIssue(for: error)
+        }
+    }
+
+    func retryLatestPhoto(baseURL: String, notifications: NotificationManager) async {
+        guard photoAuthorizationStatus == .authorized || photoAuthorizationStatus == .limited else {
+            scanIssue = .failed("Grant Photos access before scanning.")
+            return
+        }
+        guard !isProcessing else {
+            return
+        }
+        guard let lastScannedPhotoID, let asset = fetchAsset(id: lastScannedPhotoID) else {
+            scanIssue = .failed("The photo from the current result is no longer available to scan again.")
+            return
+        }
+
+        isProcessing = true
+        defer { isProcessing = false }
+
+        do {
+            try await scan(asset: asset, markAsProcessed: false, baseURL: baseURL, notifications: notifications)
+        } catch {
+            scanIssue = scanIssue(for: error)
+        }
+    }
+
+    func scanCapturedImage(imageData: Data, baseURL: String, notifications: NotificationManager) async {
+        guard !isProcessing else {
+            return
+        }
+
+        isProcessing = true
+        defer { isProcessing = false }
+
+        do {
+            lastScannedPhotoID = nil
+            lastScannedRecognitionImageData = imageData
+            autoSavedRecognitionEncoding = nil
+            let thumbnailData = try thumbnailData(
+                from: imageData,
                 targetSize: Self.historyThumbnailTargetSize,
                 compressionQuality: 0.72
             )
             lastScannedImageData = thumbnailData
+
             let response: RecognitionResponse
             do {
                 response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
             } catch let error as APIClientError where error.statusCode == 400 && error.message.localizedCaseInsensitiveContains("No face detected") {
-                markProcessed(asset)
+                lastCompletedScanAt = Date()
                 hasNewPhoto = false
                 latestInsertedPhotoID = nil
                 pendingPhotoIdentifier = nil
+                lastScanSupportsPhotoRetry = false
                 lastResult = nil
+                lastScannedRecognitionImageData = nil
+                autoSavedRecognitionEncoding = nil
                 pendingUnknownImageData = nil
                 lastScanMessage = nil
                 scanIssue = .noFaceDetected
                 return
             }
 
-            markProcessed(asset)
+            lastCompletedScanAt = Date()
             lastResult = response
             onRecognitionResult?(response)
             hasNewPhoto = false
             latestInsertedPhotoID = nil
             pendingPhotoIdentifier = nil
+            lastScanSupportsPhotoRetry = false
             scanIssue = nil
             lastScanMessage = scanSummary(for: response)
             recognitionRuns.insert(
                 RecognitionRun(
                     thumbnailData: thumbnailData,
                     result: response,
-                    photoCreatedAt: asset.creationDate,
-                    photoModifiedAt: asset.modificationDate
+                    photoCreatedAt: nil,
+                    photoModifiedAt: nil
                 ),
                 at: 0
             )
@@ -146,6 +193,11 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
             case .recognized:
                 pendingUnknownImageData = nil
                 if let person = response.person {
+                    await autoSaveRecognitionEncoding(
+                        personID: person.id,
+                        imageData: imageData,
+                        baseURL: baseURL
+                    )
                     notifications.notifyRecognized(person: person)
                 }
             case .unknown:
@@ -153,7 +205,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
                 notifications.notifyUnknown()
             }
         } catch {
-            scanIssue = .failed(error.localizedDescription)
+            scanIssue = scanIssue(for: error)
         }
     }
 
@@ -275,6 +327,71 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         }
     }
 
+    func changeLastRecognition(to person: Person, baseURL: String) async throws {
+        guard let imageData = lastScannedRecognitionImageData else {
+            throw PhotoWatcherError.noScannedImageAvailable
+        }
+        guard let currentResult = lastResult, currentResult.status == .recognized else {
+            throw PhotoWatcherError.noRecognizedResultAvailable
+        }
+
+        if let autoSavedRecognitionEncoding,
+           autoSavedRecognitionEncoding.personID != person.id {
+            try await apiClient.deletePersonPhotoEncoding(
+                personID: autoSavedRecognitionEncoding.personID,
+                encodingID: autoSavedRecognitionEncoding.encodingID,
+                baseURL: baseURL
+            )
+            self.autoSavedRecognitionEncoding = nil
+        }
+
+        let encodingID = try await apiClient.addPersonPhotoEncoding(
+            id: person.id,
+            imageData: imageData,
+            baseURL: baseURL
+        )
+        autoSavedRecognitionEncoding = SavedRecognitionEncoding(
+            personID: person.id,
+            encodingID: encodingID
+        )
+
+        let correctedResult = currentResult.replacingPerson(person)
+        lastResult = correctedResult
+        lastScanMessage = "Changed match to \(person.name) and saved this photo as a training encoding."
+
+        if let firstRun = recognitionRuns.first,
+           firstRun.result == currentResult {
+            recognitionRuns[0] = firstRun.replacingPerson(person)
+            saveRecognitionRuns()
+        }
+    }
+
+    func replaceLastRecognitionWithCreatedPerson(_ person: Person, baseURL: String) async throws {
+        guard let currentResult = lastResult, currentResult.status == .recognized else {
+            throw PhotoWatcherError.noRecognizedResultAvailable
+        }
+
+        if let autoSavedRecognitionEncoding,
+           autoSavedRecognitionEncoding.personID != person.id {
+            try await apiClient.deletePersonPhotoEncoding(
+                personID: autoSavedRecognitionEncoding.personID,
+                encodingID: autoSavedRecognitionEncoding.encodingID,
+                baseURL: baseURL
+            )
+            self.autoSavedRecognitionEncoding = nil
+        }
+
+        let correctedResult = currentResult.replacingPerson(person)
+        lastResult = correctedResult
+        lastScanMessage = "Changed match to \(person.name) and saved this photo as a training encoding."
+
+        if let firstRun = recognitionRuns.first,
+           firstRun.result == currentResult {
+            recognitionRuns[0] = firstRun.replacingPerson(person)
+            saveRecognitionRuns()
+        }
+    }
+
     private func newestUnprocessedImageAsset() -> PHAsset? {
         let processedIDs = Set(UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? [])
 
@@ -312,6 +429,127 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
     private func fetchAsset(id: String) -> PHAsset? {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
         return assets.firstObject
+    }
+
+    private func scan(
+        asset: PHAsset,
+        markAsProcessed: Bool,
+        baseURL: String,
+        notifications: NotificationManager
+    ) async throws {
+        let imageData = try await jpegData(
+            for: asset,
+            targetSize: Self.scanImageTargetSize,
+            compressionQuality: 0.84
+        )
+        let thumbnailData = try await jpegData(
+            for: asset,
+            targetSize: Self.historyThumbnailTargetSize,
+            compressionQuality: 0.72
+        )
+        lastScannedPhotoID = asset.localIdentifier
+        lastScannedRecognitionImageData = imageData
+        autoSavedRecognitionEncoding = nil
+        lastScannedImageData = thumbnailData
+
+        let response: RecognitionResponse
+        do {
+            response = try await apiClient.recognize(imageData: imageData, baseURL: baseURL)
+        } catch let error as APIClientError where error.statusCode == 400 && error.message.localizedCaseInsensitiveContains("No face detected") {
+            if markAsProcessed {
+                markProcessed(asset)
+            }
+            lastCompletedScanAt = Date()
+            hasNewPhoto = false
+            latestInsertedPhotoID = nil
+            pendingPhotoIdentifier = nil
+            lastScanSupportsPhotoRetry = true
+            lastResult = nil
+            lastScannedRecognitionImageData = nil
+            autoSavedRecognitionEncoding = nil
+            pendingUnknownImageData = nil
+            lastScanMessage = nil
+            scanIssue = .noFaceDetected
+            return
+        }
+
+        if markAsProcessed {
+            markProcessed(asset)
+        }
+        lastCompletedScanAt = Date()
+        lastResult = response
+        onRecognitionResult?(response)
+        hasNewPhoto = false
+        latestInsertedPhotoID = nil
+        pendingPhotoIdentifier = nil
+        lastScanSupportsPhotoRetry = true
+        scanIssue = nil
+        lastScanMessage = scanSummary(for: response)
+        recognitionRuns.insert(
+            RecognitionRun(
+                thumbnailData: thumbnailData,
+                result: response,
+                photoCreatedAt: asset.creationDate,
+                photoModifiedAt: asset.modificationDate
+            ),
+            at: 0
+        )
+        recognitionRuns = Array(recognitionRuns.prefix(50))
+        saveRecognitionRuns()
+
+        switch response.status {
+        case .recognized:
+            pendingUnknownImageData = nil
+            if let person = response.person {
+                await autoSaveRecognitionEncoding(
+                    personID: person.id,
+                    imageData: imageData,
+                    baseURL: baseURL
+                )
+                notifications.notifyRecognized(person: person)
+            }
+        case .unknown:
+            pendingUnknownImageData = imageData
+            notifications.notifyUnknown()
+        }
+    }
+
+    private func autoSaveRecognitionEncoding(personID: String, imageData: Data, baseURL: String) async {
+        do {
+            let encodingID = try await apiClient.addPersonPhotoEncoding(
+                id: personID,
+                imageData: imageData,
+                baseURL: baseURL
+            )
+            autoSavedRecognitionEncoding = SavedRecognitionEncoding(
+                personID: personID,
+                encodingID: encodingID
+            )
+            lastScanMessage = "\(lastScanMessage ?? "Recognized a saved person.") Saved this photo as a training encoding."
+        } catch {
+            autoSavedRecognitionEncoding = nil
+            lastScanMessage = "\(lastScanMessage ?? "Recognized a saved person.") Could not save this photo as a training encoding: \(error.localizedDescription)"
+        }
+    }
+
+    private func scanIssue(for error: Error) -> ScanIssue {
+        if let apiError = error as? APIClientError {
+            if let statusCode = apiError.statusCode, statusCode >= 500 {
+                return .backendUnavailable(apiError.message)
+            }
+            return .failed(apiError.localizedDescription)
+        }
+
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet, .cannotConnectToHost, .cannotFindHost, .networkConnectionLost, .timedOut:
+                return .backendUnavailable("Nemo could not reach the backend.")
+            default:
+                break
+            }
+        }
+
+        return .failed(error.localizedDescription)
     }
 
     private func jpegData(for asset: PHAsset, targetSize: CGSize, compressionQuality: CGFloat) async throws -> Data {
@@ -359,6 +597,25 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         }
     }
 
+    private func thumbnailData(from imageData: Data, targetSize: CGSize, compressionQuality: CGFloat) throws -> Data {
+        guard let image = UIImage(data: imageData) else {
+            throw PhotoWatcherError.imageConversionFailed
+        }
+
+        let scale = min(targetSize.width / image.size.width, targetSize.height / image.size.height, 1)
+        let size = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let thumbnail = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+
+        guard let data = thumbnail.jpegData(compressionQuality: compressionQuality) else {
+            throw PhotoWatcherError.imageConversionFailed
+        }
+
+        return data
+    }
+
     private func markProcessed(_ asset: PHAsset) {
         var ids = UserDefaults.standard.stringArray(forKey: "processedPhotoIDs") ?? []
         ids.append(asset.localIdentifier)
@@ -384,6 +641,7 @@ final class PhotoWatcher: NSObject, ObservableObject, PHPhotoLibraryChangeObserv
         latestInsertedPhotoID = nil
         pendingPhotoIdentifier = nil
         hasNewPhoto = false
+        lastScanSupportsPhotoRetry = false
     }
 
     private func isRecentEnough(_ asset: PHAsset) -> Bool {
@@ -442,13 +700,24 @@ private extension PHFetchResult where ObjectType == PHAsset {
     }
 }
 
+private struct SavedRecognitionEncoding {
+    let personID: String
+    let encodingID: String
+}
+
 enum PhotoWatcherError: Error, LocalizedError {
     case imageConversionFailed
+    case noScannedImageAvailable
+    case noRecognizedResultAvailable
 
     var errorDescription: String? {
         switch self {
         case .imageConversionFailed:
             return "Could not convert the Photos asset to JPEG."
+        case .noScannedImageAvailable:
+            return "No scanned photo is available to save."
+        case .noRecognizedResultAvailable:
+            return "There is no recognized person to change."
         }
     }
 }

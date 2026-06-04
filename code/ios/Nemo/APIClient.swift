@@ -78,17 +78,45 @@ struct APIClient {
         return try await sendOptionalData(request)
     }
 
+    func updatePersonReferenceImage(id: String, imageData: Data, baseURL: String) async throws {
+        var request = try request(path: "/people/\(id)/reference-image", baseURL: baseURL)
+        request.httpMethod = "POST"
+        request.setMultipartBody(fields: [:], fileField: "file", fileName: "reference.jpg", mimeType: "image/jpeg", data: imageData)
+        try await sendEmpty(request)
+    }
+
     func updatePerson(id: String, name: String, description: String, relationship: String, baseURL: String) async throws -> Person {
         var request = try request(path: "/people/\(id)", baseURL: baseURL)
         request.httpMethod = "PATCH"
-        request.setJSONBody(PersonUpdateRequest(name: name, description: description, relationship: relationship))
+        request.setJSONBody(
+            PersonUpdateRequest(
+                name: name,
+                description: description,
+                relationship: relationship,
+                notes: ""
+            )
+        )
         return try await send(request)
     }
 
     func addPersonPhoto(id: String, imageData: Data, baseURL: String) async throws {
+        _ = try await addPersonPhotoEncoding(id: id, imageData: imageData, baseURL: baseURL)
+    }
+
+    func addPersonPhotoEncoding(id: String, imageData: Data, baseURL: String) async throws -> String {
         var request = try request(path: "/people/\(id)/photos", baseURL: baseURL)
         request.httpMethod = "POST"
         request.setMultipartBody(fields: [:], fileField: "file", fileName: "extra_photo.jpg", mimeType: "image/jpeg", data: imageData)
+        let result: [String: String] = try await send(request)
+        guard let encodingID = result["encoding_id"] else {
+            throw APIClientError.invalidResponse
+        }
+        return encodingID
+    }
+
+    func deletePersonPhotoEncoding(personID: String, encodingID: String, baseURL: String) async throws {
+        var request = try request(path: "/people/\(personID)/photos/\(encodingID)", baseURL: baseURL)
+        request.httpMethod = "DELETE"
         try await sendEmpty(request)
     }
 
@@ -96,6 +124,29 @@ struct APIClient {
         let request = try request(path: "/people/\(id)/photo-count", baseURL: baseURL)
         let result: [String: Int] = try await send(request)
         return result["count"] ?? 0
+    }
+
+    func personMemories(id: String, baseURL: String) async throws -> [PersonMemory] {
+        let request = try request(path: "/people/\(id)/memories", baseURL: baseURL)
+        return try await send(request)
+    }
+
+    func addPersonMemory(id: String, data: Data, mimeType: String, fileName: String, baseURL: String) async throws -> PersonMemory {
+        var request = try request(path: "/people/\(id)/memories", baseURL: baseURL)
+        request.httpMethod = "POST"
+        request.setMultipartBody(fields: [:], fileField: "file", fileName: fileName, mimeType: mimeType, data: data)
+        return try await send(request)
+    }
+
+    func personMemoryData(personID: String, memoryID: String, baseURL: String) async throws -> Data {
+        let request = try request(path: "/people/\(personID)/memories/\(memoryID)", baseURL: baseURL)
+        return try await sendData(request)
+    }
+
+    func deletePersonMemory(personID: String, memoryID: String, baseURL: String) async throws {
+        var request = try request(path: "/people/\(personID)/memories/\(memoryID)", baseURL: baseURL)
+        request.httpMethod = "DELETE"
+        try await sendEmpty(request)
     }
 
     func deletePerson(id: String, baseURL: String) async throws {
@@ -150,6 +201,18 @@ struct APIClient {
         }
         if httpResponse.statusCode == 404 {
             return nil
+        }
+        guard (200..<300).contains(httpResponse.statusCode) else {
+            let message = Self.errorMessage(from: data)
+            throw APIClientError.serverError(httpResponse.statusCode, message)
+        }
+        return data
+    }
+
+    private func sendData(_ request: URLRequest) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIClientError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
             let message = Self.errorMessage(from: data)

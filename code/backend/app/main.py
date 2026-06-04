@@ -10,15 +10,17 @@ from .recognition import (
     FaceEncodingResult,
     FaceRecognitionRecognizer,
     InvalidImageError,
+    MockImageRecognizer,
     RecognitionError,
     Recognizer,
     face_distance,
 )
-from .schemas import HealthResponse, Person, PersonUpdate, RecognitionResponse, VoiceCommandRequest, VoiceCommandResponse
 
+from .schemas import HealthResponse, Person, PersonMemory, PersonUpdate, RecognitionResponse, VoiceCommandRequest, VoiceCommandResponse
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "face_recall.sqlite"
 DEFAULT_DISTANCE_THRESHOLD = 0.6
+DEFAULT_MOCK_DISTANCE_THRESHOLD = 2.5
 
 
 def create_app(
@@ -28,11 +30,11 @@ def create_app(
 ) -> FastAPI:
     app = FastAPI(title="Nemo Backend")
     app.state.db = Database(db_path or os.environ.get("FACE_DB_PATH", DEFAULT_DB_PATH))
-    app.state.recognizer = recognizer or FaceRecognitionRecognizer()
+    app.state.recognizer = recognizer or default_recognizer()
     app.state.distance_threshold = (
         distance_threshold
         if distance_threshold is not None
-        else float(os.environ.get("FACE_DISTANCE_THRESHOLD", DEFAULT_DISTANCE_THRESHOLD))
+        else default_distance_threshold()
     )
 
     @app.get("/health", response_model=HealthResponse)
@@ -60,15 +62,36 @@ def create_app(
             raise HTTPException(status_code=404, detail="Reference image not found")
         return Response(content=image_bytes, media_type="image/jpeg")
 
-    @app.post("/people/{person_id}/photos", status_code=204)
-    async def add_person_photo(person_id: str, file: UploadFile = File(...)) -> Response:
+    @app.post("/people/{person_id}/reference-image", status_code=204)
+    @app.put("/people/{person_id}/reference-image", status_code=204)
+    async def update_reference_image(person_id: str, file: UploadFile = File(...)) -> Response:
         if app.state.db.get_person(person_id) is None:
             raise HTTPException(status_code=404, detail="Person not found")
         image_bytes = await file.read()
         result = _encode_or_raise(app.state.recognizer, image_bytes)
         if not result.encodings:
             raise HTTPException(status_code=400, detail="No face detected in image")
-        app.state.db.add_face_encoding(person_id, result.encodings[0])
+        app.state.db.update_reference_image(person_id, image_bytes)
+        return Response(status_code=204)
+
+    @app.post("/people/{person_id}/photos")
+    async def add_person_photo(person_id: str, file: UploadFile = File(...)) -> dict:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        image_bytes = await file.read()
+        result = _encode_or_raise(app.state.recognizer, image_bytes)
+        if not result.encodings:
+            raise HTTPException(status_code=400, detail="No face detected in image")
+        encoding_id = app.state.db.add_face_encoding(person_id, result.encodings[0])
+        return {"encoding_id": encoding_id}
+
+    @app.delete("/people/{person_id}/photos/{encoding_id}", status_code=204)
+    def delete_person_photo(person_id: str, encoding_id: str) -> Response:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        deleted = app.state.db.delete_face_encoding(person_id, encoding_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Encoding not found")
         return Response(status_code=204)
 
     @app.get("/people/{person_id}/photo-count")
@@ -76,6 +99,51 @@ def create_app(
         if app.state.db.get_person(person_id) is None:
             raise HTTPException(status_code=404, detail="Person not found")
         return {"count": app.state.db.get_encoding_count(person_id)}
+
+    @app.get("/people/{person_id}/memories", response_model=list[PersonMemory])
+    def list_memories(person_id: str) -> list[dict]:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        return app.state.db.list_memories(person_id)
+
+    @app.post("/people/{person_id}/memories", response_model=PersonMemory)
+    async def add_memory(person_id: str, file: UploadFile = File(...)) -> dict:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+
+        media_type = file.content_type or "application/octet-stream"
+        if not (media_type.startswith("image/") or media_type.startswith("video/")):
+            raise HTTPException(status_code=400, detail="Memory must be an image or video")
+
+        media = await file.read()
+        if not media:
+            raise HTTPException(status_code=400, detail="Memory file cannot be empty")
+
+        return app.state.db.add_memory(
+            person_id=person_id,
+            media=media,
+            media_type=media_type,
+            file_name=file.filename or "memory",
+        )
+
+    @app.get("/people/{person_id}/memories/{memory_id}")
+    def get_memory(person_id: str, memory_id: str) -> Response:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+
+        memory = app.state.db.get_memory(person_id, memory_id)
+        if memory is None:
+            raise HTTPException(status_code=404, detail="Memory not found")
+        return Response(content=memory["media"], media_type=memory["media_type"])
+
+    @app.delete("/people/{person_id}/memories/{memory_id}", status_code=204)
+    def delete_memory(person_id: str, memory_id: str) -> Response:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        deleted = app.state.db.delete_memory(person_id, memory_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Memory not found")
+        return Response(status_code=204)
 
     @app.post("/people", response_model=Person)
     async def create_person(
@@ -89,6 +157,18 @@ def create_app(
         result = _encode_or_raise(app.state.recognizer, image_bytes)
         if not result.encodings:
             raise HTTPException(status_code=400, detail="No face detected in image")
+
+        name = name.strip()
+        description = description.strip()
+        relationship = relationship.strip()
+        notes = notes.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Name cannot be empty")
+        if app.state.db.has_person_with_name(name):
+            raise HTTPException(
+                status_code=409,
+                detail="A person with this name already exists. Add this photo to the existing person or choose a different name.",
+            )
 
         person = app.state.db.create_person(
             name=name,
@@ -106,16 +186,21 @@ def create_app(
         description = update.description.strip()
         if not name:
             raise HTTPException(status_code=400, detail="Name cannot be empty")
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        if app.state.db.has_person_with_name(name, excluding_person_id=person_id):
+            raise HTTPException(
+                status_code=409,
+                detail="A person with this name already exists. Choose a different name.",
+            )
 
         person = app.state.db.update_person(
             person_id=person_id,
             name=name,
             description=description,
-            relationship=update.relationship,
-            notes=update.notes,
+            relationship=update.relationship.strip(),
+            notes=update.notes.strip(),
         )
-        if person is None:
-            raise HTTPException(status_code=404, detail="Person not found")
         return person
 
     @app.delete("/people/{person_id}", status_code=204)
@@ -173,6 +258,21 @@ def create_app(
                 message="Sorry, I didn't understand that command. Try saying who is this or call for help",
             )
     return app
+
+
+def default_recognizer() -> Recognizer:
+    if os.environ.get("NEMO_MOCK_RECOGNITION") == "1":
+        return MockImageRecognizer()
+    return FaceRecognitionRecognizer()
+
+
+def default_distance_threshold() -> float:
+    configured = os.environ.get("FACE_DISTANCE_THRESHOLD")
+    if configured is not None:
+        return float(configured)
+    if os.environ.get("NEMO_MOCK_RECOGNITION") == "1":
+        return DEFAULT_MOCK_DISTANCE_THRESHOLD
+    return DEFAULT_DISTANCE_THRESHOLD
 
 
 def _encode_or_raise(recognizer: Recognizer, image_bytes: bytes) -> FaceEncodingResult:

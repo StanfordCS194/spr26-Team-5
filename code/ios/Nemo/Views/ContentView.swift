@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import Photos
 import UserNotifications
+import AVFoundation
 
 struct ContentView: View {
     @EnvironmentObject private var notifications: NotificationManager
@@ -17,6 +18,7 @@ struct ContentView: View {
     @State private var showingCreatePerson = false
     @State private var healthStatus = "Not checked"
     @State private var isCheckingHealth = false
+    @State private var cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
     private let apiClient = APIClient()
 
@@ -27,14 +29,33 @@ struct ContentView: View {
                     PatientModeView(
                         photoWatcher: photoWatcher,
                         backendURL: backendURL,
-                        showingCreatePerson: $showingCreatePerson
+                        notifications: notifications,
+                        onRetry: {
+                            Task {
+                                await photoWatcher.retryLatestPhoto(
+                                    baseURL: backendURL,
+                                    notifications: notifications
+                                )
+                            }
+                        }
                     )
                 } else {
                     RecognitionTabView(
                         photoWatcher: photoWatcher,
                         backendURL: backendURL,
                         showingCreatePerson: $showingCreatePerson,
-                        notifications: notifications
+                        notifications: notifications,
+                        onRetry: {
+                            Task {
+                                await photoWatcher.retryLatestPhoto(
+                                    baseURL: backendURL,
+                                    notifications: notifications
+                                )
+                            }
+                        },
+                        onOpenSettings: {
+                            selectedTab = 2
+                        }
                     )
                 }
             }
@@ -72,12 +93,18 @@ struct ContentView: View {
                 ttsEnabled: $ttsEnabled,
                 patientMode: $patientMode,
                 photoAuthorizationStatus: photoWatcher.photoAuthorizationStatus,
+                cameraAuthorizationStatus: cameraAuthorizationStatus,
                 notificationAuthorizationStatus: notifications.authorizationStatus,
                 healthStatus: healthStatus,
                 isCheckingHealth: isCheckingHealth,
                 requestPhotos: {
                     Task {
                         await photoWatcher.requestPermission()
+                    }
+                },
+                requestCamera: {
+                    Task {
+                        await requestCameraPermission()
                     }
                 },
                 requestNotifications: {
@@ -121,6 +148,7 @@ struct ContentView: View {
             if phase == .active {
                 photoWatcher.startObservingIfAllowed()
                 photoWatcher.refreshForPhotoChanges()
+                cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
                 photoWatcher.onRecognitionResult = { response in
                     guard ttsEnabled else { return }
                     speechManager.speak(Self.speechText(for: response))
@@ -166,6 +194,14 @@ struct ContentView: View {
         }
     }
 
+    private func requestCameraPermission() async {
+        if cameraAuthorizationStatus == .notDetermined {
+            _ = await AVCaptureDevice.requestAccess(for: .video)
+        }
+
+        cameraAuthorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+    }
+
     private func autoScanIfNeeded() async {
         guard photoWatcher.pendingPhotoIdentifier != nil, !photoWatcher.isProcessing else {
             return
@@ -189,14 +225,28 @@ private struct RecognitionTabView: View {
     let backendURL: String
     @Binding var showingCreatePerson: Bool
     let notifications: NotificationManager
+    let onRetry: () -> Void
+    let onOpenSettings: () -> Void
+    @State private var showingCamera = false
+    @State private var cameraMessage: String?
+    @State private var showingChangePerson = false
+    @State private var correctionMessage: String?
+    @State private var isChangingPerson = false
 
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 18) {
+                    CameraCaptureStatusView(
+                        message: cameraMessage,
+                        isProcessing: photoWatcher.isProcessing,
+                        onTakePhoto: presentCamera
+                    )
+
                     NewPhotoStatusView(
                         hasNewPhoto: photoWatcher.hasNewPhoto,
-                        isProcessing: photoWatcher.isProcessing
+                        isProcessing: photoWatcher.isProcessing,
+                        lastScanDate: photoWatcher.lastCompletedScanAt
                     )
 
                     if let imageData = photoWatcher.lastScannedImageData {
@@ -204,11 +254,36 @@ private struct RecognitionTabView: View {
                     }
 
                     if let issue = photoWatcher.scanIssue {
-                        ScanIssueView(issue: issue)
+                        ScanIssueView(
+                            issue: issue,
+                            onRetry: onRetry,
+                            onOpenSettings: onOpenSettings
+                        )
                     }
 
                     if let result = photoWatcher.lastResult {
-                        RecognitionResultView(result: result)
+                        RecognitionResultView(
+                            backendURL: backendURL,
+                            result: result,
+                            isChangingPerson: isChangingPerson,
+                            onChangePerson: result.status == .recognized ? {
+                                showingChangePerson = true
+                            } : nil
+                        )
+                        if let correctionMessage {
+                            Text(correctionMessage)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        if result.status == .unknown {
+                            UnknownRecognitionView(
+                                onRetry: onRetry,
+                                onRetake: presentCamera,
+                                isProcessing: photoWatcher.isProcessing,
+                                showingCreatePerson: $showingCreatePerson
+                            )
+                        }
                     } else if photoWatcher.scanIssue == nil {
                         EmptyRecognitionView()
                     }
@@ -220,7 +295,7 @@ private struct RecognitionTabView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
-                    if photoWatcher.pendingUnknownImageData != nil {
+                    if photoWatcher.pendingUnknownImageData != nil && photoWatcher.lastResult?.status != .unknown {
                         Button {
                             showingCreatePerson = true
                         } label: {
@@ -230,18 +305,155 @@ private struct RecognitionTabView: View {
                         .buttonStyle(.bordered)
                         .controlSize(.large)
                     }
+
+                    if photoWatcher.scanIssue == nil,
+                       photoWatcher.lastResult?.status != .unknown,
+                       photoWatcher.lastScanSupportsPhotoRetry,
+                       (photoWatcher.lastScannedImageData != nil || photoWatcher.lastResult != nil) {
+                        Button(action: onRetry) {
+                            Label("Scan Again", systemImage: "arrow.clockwise")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.large)
+                        .disabled(photoWatcher.isProcessing)
+                    }
                 }
                 .padding()
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Recognition")
+            .sheet(isPresented: $showingCamera) {
+                CameraCaptureView(
+                    onCapture: { imageData in
+                        showingCamera = false
+                        cameraMessage = nil
+                        Task {
+                            await photoWatcher.scanCapturedImage(
+                                imageData: imageData,
+                                baseURL: backendURL,
+                                notifications: notifications
+                            )
+                        }
+                    },
+                    onCancel: {
+                        showingCamera = false
+                    },
+                    onError: { error in
+                        cameraMessage = error.localizedDescription
+                        showingCamera = false
+                    }
+                )
+                .ignoresSafeArea()
+            }
+            .sheet(isPresented: $showingChangePerson) {
+                ChangeRecognizedPersonView(
+                    backendURL: backendURL,
+                    currentPersonID: photoWatcher.lastResult?.person?.id,
+                    recognitionImageData: photoWatcher.lastScannedRecognitionImageData,
+                    isSaving: isChangingPerson,
+                    onSelect: { person in
+                        Task {
+                            await changeRecognition(to: person)
+                        }
+                    },
+                    onCreatePerson: { person in
+                        Task {
+                            await changeRecognitionToCreatedPerson(person)
+                        }
+                    }
+                )
+            }
         }
+    }
+
+    private func presentCamera() {
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            cameraMessage = CameraCaptureError.unavailable.localizedDescription
+            return
+        }
+
+        showingCamera = true
+    }
+
+    private func changeRecognition(to person: Person) async {
+        isChangingPerson = true
+        correctionMessage = nil
+        defer { isChangingPerson = false }
+
+        do {
+            try await photoWatcher.changeLastRecognition(to: person, baseURL: backendURL)
+            showingChangePerson = false
+        } catch {
+            correctionMessage = error.localizedDescription
+        }
+    }
+
+    private func changeRecognitionToCreatedPerson(_ person: Person) async {
+        isChangingPerson = true
+        correctionMessage = nil
+        defer { isChangingPerson = false }
+
+        do {
+            try await photoWatcher.replaceLastRecognitionWithCreatedPerson(person, baseURL: backendURL)
+            showingChangePerson = false
+        } catch {
+            correctionMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct CameraCaptureStatusView: View {
+    let message: String?
+    let isProcessing: Bool
+    let onTakePhoto: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                if isProcessing {
+                    ProgressView()
+                } else {
+                    Image(systemName: "camera")
+                        .font(.title2)
+                        .foregroundStyle(.blue)
+                }
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Camera Capture")
+                        .font(.headline)
+                    Text(isProcessing ? "Nemo is sending the captured photo to the backend." : "Take a photo directly inside Nemo.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+            }
+
+            if let message {
+                Text(message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button(action: onTakePhoto) {
+                Label("Take Photo", systemImage: "camera.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+            .disabled(isProcessing)
+        }
+        .padding()
+        .background(Color(.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 8))
     }
 }
 
 private struct NewPhotoStatusView: View {
     let hasNewPhoto: Bool
     let isProcessing: Bool
+    let lastScanDate: Date?
 
     private var icon: String {
         if isProcessing {
@@ -287,6 +499,11 @@ private struct NewPhotoStatusView: View {
                     Text(subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    if let lastScanDate {
+                        Text("Last scan \(Self.timestampFormatter.localizedString(for: lastScanDate, relativeTo: Date()))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 Spacer()
@@ -302,35 +519,86 @@ private struct NewPhotoStatusView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
+
+    private static let timestampFormatter: RelativeDateTimeFormatter = {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter
+    }()
 }
 
 private struct ScanIssueView: View {
     let issue: ScanIssue
+    let onRetry: () -> Void
+    let onOpenSettings: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
-                .font(.title3)
-                .foregroundStyle(.orange)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: issueIcon)
+                    .font(.title3)
+                    .foregroundStyle(issueTint)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(issue.title)
-                    .font(.headline)
-                Text(issue.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(issue.title)
+                        .font(.headline)
+                    Text(issue.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text(issue.nextStep)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.primary)
+                }
+
+                Spacer()
             }
 
-            Spacer()
+            HStack(spacing: 12) {
+                Button(action: onRetry) {
+                    Label("Scan Again", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+
+                if case .backendUnavailable = issue {
+                    Button(action: onOpenSettings) {
+                        Label("Open Settings", systemImage: "gearshape")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.orange.opacity(0.12))
+        .background(issueTint.opacity(0.12))
         .overlay {
             RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+                .stroke(issueTint.opacity(0.35), lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var issueIcon: String {
+        switch issue {
+        case .noFaceDetected:
+            return "person.crop.rectangle.badge.xmark"
+        case .backendUnavailable:
+            return "wifi.exclamationmark"
+        case .failed:
+            return "exclamationmark.triangle.fill"
+        }
+    }
+
+    private var issueTint: Color {
+        switch issue {
+        case .noFaceDetected:
+            return .orange
+        case .backendUnavailable:
+            return .red
+        case .failed:
+            return .orange
+        }
     }
 }
 
@@ -374,38 +642,118 @@ private struct EmptyRecognitionView: View {
 }
 
 private struct RecognitionResultView: View {
+    let backendURL: String
     let result: RecognitionResponse
+    let isChangingPerson: Bool
+    let onChangePerson: (() -> Void)?
 
     var body: some View {
+        if result.status == .recognized, let person = result.person {
+            recognizedBody(person: person)
+        } else {
+            unknownBody
+        }
+    }
+
+    private func recognizedBody(person: Person) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 14) {
+                PersonReferenceImageView(
+                    personID: person.id,
+                    backendURL: backendURL,
+                    size: 96
+                )
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title2)
+                        .foregroundStyle(.white, .green)
+                        .background(Circle().fill(Color(.secondarySystemGroupedBackground)))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(person.name)
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+
+                        Spacer(minLength: 0)
+                    }
+
+                    if !person.relationship.isEmpty {
+                        Label(person.relationship.capitalized, systemImage: "person.text.rectangle")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.green)
+                    }
+
+                    Text(person.description.isEmpty ? "No description saved." : person.description)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Divider()
+
+            HStack(spacing: 10) {
+                Label("Recognized", systemImage: "person.fill.checkmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.green.opacity(0.12))
+                    .clipShape(Capsule())
+
+                Spacer()
+
+                HStack(spacing: 8) {
+                    Text("Faces \(result.faceCount)")
+                    if let distance = result.distance {
+                        Text("Distance \(String(format: "%.3f", distance))")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if let onChangePerson {
+                Button(action: onChangePerson) {
+                    if isChangingPerson {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Change Person", systemImage: "person.2")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isChangingPerson)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.green.opacity(0.28), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private var unknownBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Label(result.status.rawValue.capitalized, systemImage: result.status == .recognized ? "person.fill.checkmark" : "questionmark.circle")
+                Label(result.status.rawValue.capitalized, systemImage: "questionmark.circle")
                     .font(.headline)
-                    .foregroundStyle(result.status == .recognized ? .green : .orange)
+                    .foregroundStyle(.orange)
                 Spacer()
                 Text("Faces \(result.faceCount)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            if let person = result.person {
-                if !person.relationship.isEmpty {
-                    Text(person.relationship.capitalized)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 4)
-                        .background(Color.green)
-                        .clipShape(Capsule())
-                }
-                Text(person.name)
-                    .font(.title3.weight(.semibold))
-                Text(person.description.isEmpty ? "No description." : person.description)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("No matching person found.")
-                    .foregroundStyle(.secondary)
-            }
+            Text("No matching person found.")
+                .foregroundStyle(.secondary)
 
             if let distance = result.distance {
                 Text("Distance \(String(format: "%.3f", distance))")
@@ -416,6 +764,180 @@ private struct RecognitionResultView: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(.secondarySystemGroupedBackground))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.28), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+private struct ChangeRecognizedPersonView: View {
+    let backendURL: String
+    let currentPersonID: String?
+    let recognitionImageData: Data?
+    let isSaving: Bool
+    let onSelect: (Person) -> Void
+    let onCreatePerson: (Person) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @State private var people: [Person] = []
+    @State private var isLoading = false
+    @State private var errorMessage: String?
+    @State private var showingCreatePerson = false
+
+    private let apiClient = APIClient()
+
+    private var selectablePeople: [Person] {
+        people.filter { $0.id != currentPersonID }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if isLoading {
+                    ProgressView()
+                }
+
+                Section {
+                    Button {
+                        showingCreatePerson = true
+                    } label: {
+                        Label("Add New Person", systemImage: "person.crop.circle.badge.plus")
+                    }
+                    .disabled(isSaving || recognitionImageData == nil)
+
+                    if recognitionImageData == nil {
+                        Text("No scanned photo is available for a new person.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let errorMessage {
+                    Section("Error") {
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Section("People") {
+                    if selectablePeople.isEmpty && !isLoading {
+                        Text("No other saved people.")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        ForEach(selectablePeople) { person in
+                            Button {
+                                onSelect(person)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    PersonReferenceImageView(
+                                        personID: person.id,
+                                        backendURL: backendURL,
+                                        size: 48
+                                    )
+
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(person.name)
+                                            .font(.headline)
+                                            .foregroundStyle(.primary)
+                                        Text(person.description.isEmpty ? "No description." : person.description)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                            .disabled(isSaving)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Change Person")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSaving)
+                }
+            }
+            .task {
+                await loadPeople()
+            }
+            .sheet(isPresented: $showingCreatePerson) {
+                CreatePersonView(
+                    backendURL: backendURL,
+                    imageData: recognitionImageData,
+                    onCreated: onCreatePerson
+                )
+            }
+        }
+    }
+
+    private func loadPeople() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            people = try await apiClient.people(baseURL: backendURL)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct UnknownRecognitionView: View {
+    let onRetry: () -> Void
+    let onRetake: () -> Void
+    let isProcessing: Bool
+    @Binding var showingCreatePerson: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Unknown Person")
+                .font(.headline)
+            Text("No saved match was found. If you know this person, ask a caregiver to save them. Otherwise, scan again with a clearer photo.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            Button(action: onRetake) {
+                if isProcessing {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                } else {
+                    Label("Retake Photo", systemImage: "camera.fill")
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isProcessing)
+
+            HStack(spacing: 12) {
+                Button(action: onRetry) {
+                    Label("Scan Again", systemImage: "arrow.clockwise")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isProcessing)
+
+                Button {
+                    showingCreatePerson = true
+                } label: {
+                    Label("Save Person", systemImage: "person.crop.circle.badge.plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .disabled(isProcessing)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.orange.opacity(0.12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.orange.opacity(0.35), lineWidth: 1)
+        }
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
@@ -568,10 +1090,12 @@ private struct SettingsTabView: View {
     @Binding var ttsEnabled: Bool
     @Binding var patientMode: Bool
     let photoAuthorizationStatus: PHAuthorizationStatus
+    let cameraAuthorizationStatus: AVAuthorizationStatus
     let notificationAuthorizationStatus: UNAuthorizationStatus
     let healthStatus: String
     let isCheckingHealth: Bool
     let requestPhotos: () -> Void
+    let requestCamera: () -> Void
     let requestNotifications: () -> Void
     let checkHealth: () -> Void
 
@@ -613,6 +1137,11 @@ private struct SettingsTabView: View {
                     }
                     StatusLine(title: "Photos", value: photoStatusText)
 
+                    Button(action: requestCamera) {
+                        Label("Request Camera Access", systemImage: "camera")
+                    }
+                    StatusLine(title: "Camera", value: cameraStatusText)
+
                     Button(action: requestNotifications) {
                         Label("Request Notifications", systemImage: "bell")
                     }
@@ -629,6 +1158,21 @@ private struct SettingsTabView: View {
             return "Authorized"
         case .limited:
             return "Limited"
+        case .denied:
+            return "Denied"
+        case .restricted:
+            return "Restricted"
+        case .notDetermined:
+            return "Not determined"
+        @unknown default:
+            return "Unknown"
+        }
+    }
+
+    private var cameraStatusText: String {
+        switch cameraAuthorizationStatus {
+        case .authorized:
+            return "Authorized"
         case .denied:
             return "Denied"
         case .restricted:
@@ -672,10 +1216,11 @@ private struct StatusLine: View {
     }
 }
 
-private struct PersonReferenceImageView: View {
+struct PersonReferenceImageView: View {
     let personID: String
     let backendURL: String
     let size: CGFloat
+    var refreshToken: Int = 0
 
     @State private var imageData: Data?
     @State private var didLoad = false
@@ -702,12 +1247,13 @@ private struct PersonReferenceImageView: View {
         }
         .frame(width: size, height: size)
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .task(id: "\(backendURL)-\(personID)") {
+        .task(id: "\(backendURL)-\(personID)-\(refreshToken)") {
             await loadImage()
         }
     }
 
     private func loadImage() async {
+        didLoad = false
         do {
             imageData = try await apiClient.personReferenceImage(id: personID, baseURL: backendURL)
         } catch {
@@ -859,6 +1405,15 @@ private struct PersonDatabaseEditor: View {
     @State private var isAddingPhoto = false
     @State private var showPhotoPicker = false
     @State private var addPhotoError: String?
+    @State private var isUpdatingReferencePhoto = false
+    @State private var showReferencePhotoPicker = false
+    @State private var referencePhotoError: String?
+    @State private var referencePhotoRefreshToken = 0
+    @State private var memoryCount: Int = 0
+    @State private var isAddingMemory = false
+    @State private var showMemoryPicker = false
+    @State private var showMemories = false
+    @State private var memoryError: String?
 
     private let apiClient = APIClient()
 
@@ -885,9 +1440,25 @@ private struct PersonDatabaseEditor: View {
                     PersonReferenceImageView(
                         personID: person.id,
                         backendURL: backendURL,
-                        size: 180
+                        size: 180,
+                        refreshToken: referencePhotoRefreshToken
                     )
                     Spacer()
+                }
+                Button {
+                    showReferencePhotoPicker = true
+                } label: {
+                    if isUpdatingReferencePhoto {
+                        ProgressView()
+                    } else {
+                        Label("Change Reference Photo", systemImage: "photo")
+                    }
+                }
+                .disabled(isUpdatingReferencePhoto)
+                if let referencePhotoError {
+                    Text(referencePhotoError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
                 }
             }
 
@@ -910,6 +1481,38 @@ private struct PersonDatabaseEditor: View {
                 .disabled(isAddingPhoto)
                 if let addPhotoError {
                     Text(addPhotoError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            Section("Memories") {
+                HStack {
+                    Text("Saved memories")
+                    Spacer()
+                    Text("\(memoryCount)")
+                        .foregroundStyle(.secondary)
+                }
+                Button {
+                    showMemoryPicker = true
+                } label: {
+                    if isAddingMemory {
+                        ProgressView()
+                    } else {
+                        Label("Add Memory", systemImage: "photo.stack")
+                    }
+                }
+                .disabled(isAddingMemory)
+
+                Button {
+                    showMemories = true
+                } label: {
+                    Label("Look Through Memories", systemImage: "rectangle.stack")
+                }
+                .disabled(memoryCount == 0)
+
+                if let memoryError {
+                    Text(memoryError)
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
@@ -952,11 +1555,31 @@ private struct PersonDatabaseEditor: View {
                 }
             }
         }
-        .task { await loadPhotoCount() }
+        .task { await loadCounts() }
         .sheet(isPresented: $showPhotoPicker) {
             PhotoPickerView { imageData in
                 Task { await uploadPhoto(imageData) }
             }
+        }
+        .sheet(isPresented: $showReferencePhotoPicker) {
+            PhotoPickerView { imageData in
+                Task { await updateReferencePhoto(imageData) }
+            }
+        }
+        .sheet(isPresented: $showMemoryPicker) {
+            MemoryPickerView { selection in
+                Task { await uploadMemory(selection) }
+            }
+        }
+        .sheet(isPresented: $showMemories) {
+            MemoriesGalleryView(
+                person: person,
+                backendURL: backendURL,
+                allowsDelete: true,
+                onDeleted: { _ in
+                    memoryCount = max(0, memoryCount - 1)
+                }
+            )
         }
         .navigationTitle("Edit Person")
         .toolbar {
@@ -1019,8 +1642,9 @@ private struct PersonDatabaseEditor: View {
         }
     }
 
-    private func loadPhotoCount() async {
+    private func loadCounts() async {
         photoCount = (try? await apiClient.personPhotoCount(id: person.id, baseURL: backendURL)) ?? 0
+        memoryCount = (try? await apiClient.personMemories(id: person.id, baseURL: backendURL).count) ?? 0
     }
 
     private func uploadPhoto(_ imageData: Data) async {
@@ -1032,6 +1656,40 @@ private struct PersonDatabaseEditor: View {
             photoCount += 1
         } catch {
             addPhotoError = error.localizedDescription
+        }
+    }
+
+    private func updateReferencePhoto(_ imageData: Data) async {
+        isUpdatingReferencePhoto = true
+        referencePhotoError = nil
+        defer { isUpdatingReferencePhoto = false }
+        do {
+            try await apiClient.updatePersonReferenceImage(
+                id: person.id,
+                imageData: imageData,
+                baseURL: backendURL
+            )
+            referencePhotoRefreshToken += 1
+        } catch {
+            referencePhotoError = error.localizedDescription
+        }
+    }
+
+    private func uploadMemory(_ selection: MemoryMediaSelection) async {
+        isAddingMemory = true
+        memoryError = nil
+        defer { isAddingMemory = false }
+        do {
+            _ = try await apiClient.addPersonMemory(
+                id: person.id,
+                data: selection.data,
+                mimeType: selection.mimeType,
+                fileName: selection.fileName,
+                baseURL: backendURL
+            )
+            memoryCount += 1
+        } catch {
+            memoryError = error.localizedDescription
         }
     }
 }

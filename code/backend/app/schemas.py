@@ -17,6 +17,14 @@ class PersonUpdate(BaseModel):
     notes: str = ""
 
 
+class PersonMemory(BaseModel):
+    id: str
+    person_id: str
+    media_type: str
+    file_name: str
+    created_at: str
+
+
 class RecognitionResponse(BaseModel):
     status: str
     person: Person | None
