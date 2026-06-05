@@ -44,6 +44,7 @@ struct ContentView: View {
     @AppStorage("backendURL") private var backendURL = "http://127.0.0.1:8000"
     @AppStorage("ttsEnabled") private var ttsEnabled = true
     @AppStorage("patientMode") private var patientMode = false
+    @AppStorage("voiceCommandsEnabled") private var voiceCommandsEnabled = true
 
     @State private var selectedTab = 0
     @State private var selectedPersonID: String?
@@ -80,6 +81,7 @@ struct ContentView: View {
                                     photoWatcher: photoWatcher,
                                     backendURL: backendURL,
                                     notifications: notifications,
+                                    voiceCommandsEnabled: voiceCommandsEnabled,
                                     onRetry: {
                                         Task {
                                             await photoWatcher.retryLatestPhoto(
@@ -1427,6 +1429,8 @@ private struct SettingsTabView: View {
     @Binding var backendURL: String
     @Binding var ttsEnabled: Bool
     @Binding var patientMode: Bool
+    @Binding var voiceCommandsEnabled: Bool
+    let selectedExperienceTitle: String
     let photoAuthorizationStatus: PHAuthorizationStatus
     let cameraAuthorizationStatus: AVAuthorizationStatus
     let notificationAuthorizationStatus: UNAuthorizationStatus

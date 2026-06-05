@@ -15,7 +15,7 @@ final class VoiceCommandManager: ObservableObject {
 
     func requestPermissions() {
         SFSpeechRecognizer.requestAuthorization { _ in }
-        AVAudioSession.sharedInstance().requestRecordPermission { _ in }
+        AVAudioApplication.requestRecordPermission { _ in }
     }
 
     func startListening(baseURL: String, speechManager: SpeechManager) {
