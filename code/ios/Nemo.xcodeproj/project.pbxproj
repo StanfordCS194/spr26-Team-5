@@ -21,7 +21,6 @@
 		A10000000000000000000012 /* Views/CameraCaptureView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* Views/CameraCaptureView.swift */; };
 		A10000000000000000000013 /* Views/MemoryViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* Views/MemoryViews.swift */; };
 		A10000000000000000000014 /* VoiceCommandManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* VoiceCommandManager.swift */; };
-		A10000000000000000000014 /* Views/TrainingPhotosView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* Views/TrainingPhotosView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,7 +40,6 @@
 		A20000000000000000000014 /* Views/CameraCaptureView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/CameraCaptureView.swift; sourceTree = "<group>"; };
 		A20000000000000000000015 /* Views/MemoryViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/MemoryViews.swift; sourceTree = "<group>"; };
 		A20000000000000000000016 /* VoiceCommandManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceCommandManager.swift; sourceTree = "<group>"; };
-		A20000000000000000000016 /* Views/TrainingPhotosView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Views/TrainingPhotosView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -184,7 +182,6 @@
 				A10000000000000000000012 /* Views/CameraCaptureView.swift in Sources */,
 				A10000000000000000000013 /* Views/MemoryViews.swift in Sources */,
 				A10000000000000000000014 /* VoiceCommandManager.swift in Sources */,
-				A10000000000000000000014 /* Views/TrainingPhotosView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

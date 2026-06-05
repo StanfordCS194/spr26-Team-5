@@ -9,6 +9,7 @@ struct PatientModeView: View {
     let onRetry: () -> Void
     @State private var showingCamera = false
     @State private var showingMemories = false
+    @State private var showingMemoryPicker = false
     @State private var showingVoiceCommands = false
     @State private var showingMemoryPicker = false
     @State private var cameraMessage: String?
