@@ -130,14 +130,9 @@ private struct TrainingPhotoRow: View {
 
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Saved \(photo.createdAt)")
+                    Text("Saved \(photo.relativeCreatedAt)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(photo.id)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
                 }
 
                 Spacer()

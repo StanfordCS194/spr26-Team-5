@@ -97,6 +97,15 @@ struct FaceEncodingSummary: Codable, Identifiable, Equatable {
         case createdAt = "created_at"
         case hasImage = "has_image"
     }
+
+    var relativeCreatedAt: String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: createdAt) else { return createdAt }
+        let relative = RelativeDateTimeFormatter()
+        relative.unitsStyle = .full
+        return relative.localizedString(for: date, relativeTo: Date())
+    }
 }
 
 struct RecognitionResponse: Codable, Equatable {
