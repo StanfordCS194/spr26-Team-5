@@ -114,6 +114,16 @@ struct APIClient {
         return encodingID
     }
 
+    func personPhotos(id: String, baseURL: String) async throws -> [FaceEncodingSummary] {
+        let request = try request(path: "/people/\(id)/photos", baseURL: baseURL)
+        return try await send(request)
+    }
+
+    func personPhotoImage(personID: String, encodingID: String, baseURL: String) async throws -> Data {
+        let request = try request(path: "/people/\(personID)/photos/\(encodingID)/image", baseURL: baseURL)
+        return try await sendData(request)
+    }
+
     func deletePersonPhotoEncoding(personID: String, encodingID: String, baseURL: String) async throws {
         var request = try request(path: "/people/\(personID)/photos/\(encodingID)", baseURL: baseURL)
         request.httpMethod = "DELETE"

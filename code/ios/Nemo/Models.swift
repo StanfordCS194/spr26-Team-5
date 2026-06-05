@@ -32,6 +32,19 @@ struct Person: Codable, Identifiable, Equatable {
     }
 }
 
+extension Person {
+    var isCloseFriend: Bool {
+        relationship.localizedCaseInsensitiveContains("close friend")
+    }
+
+    var patientRelationshipLabel: String? {
+        if isCloseFriend {
+            return "Close Friend"
+        }
+        return relationship.isEmpty ? nil : relationship.capitalized
+    }
+}
+
 struct PersonUpdateRequest: Codable {
     let name: String
     let description: String
@@ -56,6 +69,20 @@ struct PersonMemory: Codable, Identifiable, Equatable {
 
     var isVideo: Bool {
         mediaType.hasPrefix("video/")
+    }
+}
+
+struct FaceEncodingSummary: Codable, Identifiable, Equatable {
+    let id: String
+    let personID: String
+    let createdAt: String
+    let hasImage: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case personID = "person_id"
+        case createdAt = "created_at"
+        case hasImage = "has_image"
     }
 }
 

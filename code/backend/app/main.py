@@ -15,8 +15,7 @@ from .recognition import (
     Recognizer,
     face_distance,
 )
-
-from .schemas import HealthResponse, Person, PersonMemory, PersonUpdate, RecognitionResponse, VoiceCommandRequest, VoiceCommandResponse
+from .schemas import FaceEncodingSummary, HealthResponse, Person, PersonMemory, PersonUpdate, RecognitionResponse, VoiceCommandRequest, VoiceCommandResponse
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "face_recall.sqlite"
 DEFAULT_DISTANCE_THRESHOLD = 0.6
@@ -82,8 +81,29 @@ def create_app(
         result = _encode_or_raise(app.state.recognizer, image_bytes)
         if not result.encodings:
             raise HTTPException(status_code=400, detail="No face detected in image")
-        encoding_id = app.state.db.add_face_encoding(person_id, result.encodings[0])
+        encoding_id = app.state.db.add_face_encoding(
+            person_id,
+            result.encodings[0],
+            image=image_bytes,
+            image_content_type=file.content_type or "image/jpeg",
+        )
         return {"encoding_id": encoding_id}
+
+    @app.get("/people/{person_id}/photos", response_model=list[FaceEncodingSummary])
+    def list_person_photos(person_id: str) -> list:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        return app.state.db.list_face_encoding_summaries(person_id)
+
+    @app.get("/people/{person_id}/photos/{encoding_id}/image")
+    def get_person_photo_image(person_id: str, encoding_id: str) -> Response:
+        if app.state.db.get_person(person_id) is None:
+            raise HTTPException(status_code=404, detail="Person not found")
+        image = app.state.db.get_face_encoding_image(person_id, encoding_id)
+        if image is None:
+            raise HTTPException(status_code=404, detail="Encoding image not found")
+        image_bytes, media_type = image
+        return Response(content=image_bytes, media_type=media_type)
 
     @app.delete("/people/{person_id}/photos/{encoding_id}", status_code=204)
     def delete_person_photo(person_id: str, encoding_id: str) -> Response:
@@ -177,7 +197,12 @@ def create_app(
             notes=notes,
             reference_image=image_bytes,
         )
-        app.state.db.add_face_encoding(person["id"], result.encodings[0])
+        app.state.db.add_face_encoding(
+            person["id"],
+            result.encodings[0],
+            image=image_bytes,
+            image_content_type=file.content_type or "image/jpeg",
+        )
         return person
 
     @app.patch("/people/{person_id}", response_model=Person)
