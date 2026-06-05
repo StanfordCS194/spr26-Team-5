@@ -34,6 +34,16 @@ struct PersonDetailView: View {
                     Text(person.description.isEmpty ? "No description." : person.description)
                     Text("Created: \(person.createdAt)")
                         .foregroundStyle(.secondary)
+                    if let lastSeenLabel = person.lastSeenLabel {
+                        Text("Last seen: \(lastSeenLabel)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if !person.notes.isEmpty {
+                    Section("Caregiver Notes") {
+                        Text(person.notes)
+                    }
                 }
 
                 if allowsMemoryManagement {
