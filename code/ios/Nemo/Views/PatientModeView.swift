@@ -11,7 +11,6 @@ struct PatientModeView: View {
     @State private var showingMemories = false
     @State private var showingMemoryPicker = false
     @State private var showingVoiceCommands = false
-    @State private var showingMemoryPicker = false
     @State private var cameraMessage: String?
     @State private var memoryMessage: String?
     @State private var isAddingMemory = false
@@ -36,6 +35,9 @@ struct PatientModeView: View {
                     waitingView
                 }
                 Spacer()
+                if let cameraMessage {
+                    cameraErrorBanner(message: cameraMessage)
+                }
             }
             .padding(.vertical, 32)
             .padding(.horizontal, 46)
@@ -110,11 +112,34 @@ struct PatientModeView: View {
     }
 
     private func presentCamera() {
+        cameraMessage = nil
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
             cameraMessage = CameraCaptureError.unavailable.localizedDescription
             return
         }
         showingCamera = true
+    }
+
+    private func cameraErrorBanner(message: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 24))
+                .foregroundStyle(.orange)
+            Text(message)
+                .font(.system(size: 22, weight: .medium))
+                .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+            Button {
+                cameraMessage = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var topRightVoiceButton: some View {
