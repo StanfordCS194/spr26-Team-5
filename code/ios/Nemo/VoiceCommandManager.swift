@@ -15,7 +15,7 @@ final class VoiceCommandManager: ObservableObject {
 
     func requestPermissions() {
         SFSpeechRecognizer.requestAuthorization { _ in }
-        AVAudioApplication.requestRecordPermission { _ in }
+        AVAudioSession.sharedInstance().requestRecordPermission { _ in }
     }
 
     func startListening(baseURL: String, speechManager: SpeechManager) {
@@ -50,29 +50,23 @@ final class VoiceCommandManager: ObservableObject {
 
         let inputNode = audioEngine.inputNode
         recognitionTask = speechRecognizer?.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            guard let self else { return }
-            if let result {
-                let text = result.bestTranscription.formattedString.lowercased()
-                if text.contains("hey nemo") {
-                    if text.contains("who is this") {
-                        self.stopListening()
-                        Task {
-                            await self.handleCommand(text: "who is this", baseURL: baseURL, speechManager: speechManager)
-                        }
-                    } else if text.contains("call for help") {
-                        self.stopListening()
-                        Task {
-                            await self.handleCommand(text: "call for help", baseURL: baseURL, speechManager: speechManager)
-                        }
-                    } else if !self.wakeWordDetected {
-                        self.wakeWordDetected = true
-                        speechManager.speak("Yes, how can I help?")
-                    }
+            Task { @MainActor in
+                guard let self else { return }
+                if error != nil {
+                    self.stopListening()
+                    return
                 }
+                guard let result else { return }
+                self.handleTranscript(
+                    result.bestTranscription.formattedString.lowercased(),
+                    baseURL: baseURL,
+                    speechManager: speechManager
+                )
             }
         }
 
         let format = inputNode.outputFormat(forBus: 0)
+        inputNode.removeTap(onBus: 0)
         inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             recognitionRequest.append(buffer)
         }
@@ -81,22 +75,31 @@ final class VoiceCommandManager: ObservableObject {
         isListening = true
     }
 
-    private func handleCommand(text: String, baseURL: String, speechManager: SpeechManager) async {
-        let apiClient = APIClient()
-        do {
-            let response = try await apiClient.voiceCommand(text: text, baseURL: baseURL)
-            lastCommand = response
-            speechManager.speak(response.message)
-            
-            if response.action == "recognize" {
-                NotificationCenter.default.post(name: .triggerRecognition, object: nil)
-            } else if response.action == "call_caregiver" {
-                if let url = URL(string: "tel://5550000000") {
-                    await UIApplication.shared.open(url)
-                }
+    private func handleTranscript(_ text: String, baseURL: String, speechManager: SpeechManager) {
+        let heardWakeWord = text.contains("hey nemo")
+        guard heardWakeWord || wakeWordDetected else {
+            return
+        }
+
+        if text.contains("who is this") {
+            stopListening()
+            Task {
+                await handleCommand(text: "who is this", baseURL: baseURL, speechManager: speechManager)
             }
-        } catch {
-            speechManager.speak("Sorry, I could not process that command")
+        } else if heardWakeWord && !wakeWordDetected {
+            wakeWordDetected = true
+            speechManager.speak("Yes, how can I help?")
+        }
+    }
+
+    private func handleCommand(text: String, baseURL: String, speechManager: SpeechManager) async {
+        if text == "who is this" {
+            lastCommand = VoiceCommandResponse(action: "recognize", message: "Opening the camera.")
+            speechManager.speak("Opening the camera.")
+            NotificationCenter.default.post(name: .triggerRecognition, object: nil)
+        } else {
+            lastCommand = VoiceCommandResponse(action: "unknown", message: "I did not understand that command.")
+            speechManager.speak("I did not understand that command.")
         }
     }
 }
