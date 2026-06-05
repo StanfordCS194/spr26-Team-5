@@ -10,7 +10,12 @@ struct PatientModeView: View {
     @State private var showingCamera = false
     @State private var showingMemories = false
     @State private var showingVoiceCommands = false
+    @State private var showingMemoryPicker = false
     @State private var cameraMessage: String?
+    @State private var memoryMessage: String?
+    @State private var isAddingMemory = false
+
+    private let apiClient = APIClient()
 
     @StateObject private var voiceCommandManager = VoiceCommandManager()
     @StateObject private var speechManager = SpeechManager()
@@ -89,7 +94,16 @@ struct PatientModeView: View {
         }
         .sheet(isPresented: $showingMemories) {
             if let person = photoWatcher.lastResult?.person {
-                MemoriesGalleryView(person: person, backendURL: backendURL)
+                MemoriesGalleryView(person: person, backendURL: backendURL, allowsDelete: true)
+            }
+        }
+        .sheet(isPresented: $showingMemoryPicker) {
+            MemoryPickerView { selection in
+                if let person = photoWatcher.lastResult?.person {
+                    Task {
+                        await uploadMemory(selection, for: person)
+                    }
+                }
             }
         }
     }
@@ -133,16 +147,8 @@ struct PatientModeView: View {
 
     private func recognizedView(person: Person) -> some View {
         VStack(spacing: 12) {
-            PersonReferenceImageView(
-                personID: person.id,
-                backendURL: backendURL,
-                size: 210
-            )
-            .overlay(alignment: .bottomTrailing) {
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 48))
-                    .foregroundStyle(.white, .green)
-                    .background(Circle().fill(Color(.systemBackground)))
+            if let imageData = photoWatcher.lastScannedImageData {
+                scannedPhotoView(imageData: imageData)
             }
 
             VStack(spacing: 8) {
@@ -151,8 +157,8 @@ struct PatientModeView: View {
                     .multilineTextAlignment(.center)
                     .minimumScaleFactor(0.65)
 
-                if !person.relationship.isEmpty {
-                    Label(person.relationship.capitalized, systemImage: "person.text.rectangle")
+                if let relationshipLabel = person.patientRelationshipLabel {
+                    Label(relationshipLabel, systemImage: person.isCloseFriend ? "heart.fill" : "person.text.rectangle")
                         .font(.system(size: 28, weight: .semibold))
                         .foregroundStyle(.green)
                         .padding(.horizontal, 16)
@@ -162,24 +168,48 @@ struct PatientModeView: View {
                 }
 
                 if !person.description.isEmpty {
-                    ScrollView {
-                        Text(person.description)
-                            .font(.system(size: 26))
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                    }
-                    .frame(minHeight: 170, maxHeight: 320)
-                    .scrollIndicators(.visible)
+                    Text(person.description)
+                        .font(.system(size: 26))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                }
+
+                if let memoryMessage {
+                    Text(memoryMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
                 }
             }
+
+            Spacer(minLength: 28)
+
+            Button {
+                showingMemoryPicker = true
+            } label: {
+                if isAddingMemory {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                } else {
+                    Label("Add Memory", systemImage: "plus.rectangle.on.folder")
+                        .font(.system(size: 20, weight: .semibold))
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 10)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.regular)
+            .tint(.purple)
+            .disabled(isAddingMemory)
 
             Button {
                 showingMemories = true
             } label: {
-                Label("Look Through Memories", systemImage: "photo.stack")
+                Label("Look through Memories", systemImage: "photo.stack")
                     .font(.system(size: 20, weight: .semibold))
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)
@@ -200,13 +230,16 @@ struct PatientModeView: View {
             .padding(.top, 4)
 
             Spacer()
-                .frame(height: 34)
         }
         .padding(.top, 24)
     }
 
     private var unknownView: some View {
         VStack(spacing: 28) {
+            if let imageData = photoWatcher.lastScannedImageData {
+                scannedPhotoView(imageData: imageData)
+            }
+
             Image(systemName: "questionmark.circle.fill").font(.system(size: 80)).foregroundStyle(.orange)
             Text("Unknown Person").font(.system(size: 48, weight: .bold)).multilineTextAlignment(.center)
             Text("Ask a caregiver for help.").font(.system(size: 26)).foregroundStyle(.secondary).multilineTextAlignment(.center)
@@ -247,6 +280,37 @@ struct PatientModeView: View {
             .controlSize(.large)
             .tint(.blue)
             .padding(.top, 8)
+        }
+    }
+
+    private func scannedPhotoView(imageData: Data) -> some View {
+        Group {
+            if let image = UIImage(data: imageData) {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 260)
+            }
+        }
+    }
+
+    private func uploadMemory(_ selection: MemoryMediaSelection, for person: Person) async {
+        isAddingMemory = true
+        memoryMessage = nil
+        defer { isAddingMemory = false }
+
+        do {
+            _ = try await apiClient.addPersonMemory(
+                id: person.id,
+                data: selection.data,
+                mimeType: selection.mimeType,
+                fileName: selection.fileName,
+                baseURL: backendURL
+            )
+            memoryMessage = "Memory added."
+        } catch {
+            memoryMessage = error.localizedDescription
         }
     }
 }
