@@ -9,6 +9,7 @@ struct CreatePersonView: View {
     @State private var name = ""
     @State private var description = ""
     @State private var relationship = ""
+    @State private var notes = ""
     @State private var errorMessage: String?
     @State private var isSaving = false
     @State private var isCombining = false
@@ -25,6 +26,15 @@ struct CreatePersonView: View {
                     TextField("Relationship (e.g. your daughter)", text: $relationship)
                     TextField("Description", text: $description, axis: .vertical)
                         .lineLimit(3...6)
+                }
+
+                Section {
+                    TextField("Caregiver notes (medication, visit patterns, topics…)", text: $notes, axis: .vertical)
+                        .lineLimit(3...8)
+                } header: {
+                    Text("Notes")
+                } footer: {
+                    Text("Only visible to caregivers, not shown to the patient.")
                 }
 
                 Section {
@@ -103,6 +113,7 @@ struct CreatePersonView: View {
                 name: trimmedName,
                 description: description.trimmingCharacters(in: .whitespacesAndNewlines),
                 relationship: relationship.trimmingCharacters(in: .whitespacesAndNewlines),
+                notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
                 imageData: imageData,
                 baseURL: backendURL
             )

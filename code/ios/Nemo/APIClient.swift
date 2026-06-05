@@ -50,11 +50,11 @@ struct APIClient {
         return try await send(request)
     }
 
-    func createPerson(name: String, description: String, relationship: String, imageData: Data, baseURL: String) async throws -> Person {
+    func createPerson(name: String, description: String, relationship: String, notes: String = "", imageData: Data, baseURL: String) async throws -> Person {
         var request = try request(path: "/people", baseURL: baseURL)
         request.httpMethod = "POST"
         request.setMultipartBody(
-            fields: ["name": name, "description": description, "relationship": relationship],
+            fields: ["name": name, "description": description, "relationship": relationship, "notes": notes],
             fileField: "file",
             fileName: "enrollment.jpg",
             mimeType: "image/jpeg",
@@ -85,7 +85,7 @@ struct APIClient {
         try await sendEmpty(request)
     }
 
-    func updatePerson(id: String, name: String, description: String, relationship: String, baseURL: String) async throws -> Person {
+    func updatePerson(id: String, name: String, description: String, relationship: String, notes: String = "", baseURL: String) async throws -> Person {
         var request = try request(path: "/people/\(id)", baseURL: baseURL)
         request.httpMethod = "PATCH"
         request.setJSONBody(
@@ -93,7 +93,7 @@ struct APIClient {
                 name: name,
                 description: description,
                 relationship: relationship,
-                notes: ""
+                notes: notes
             )
         )
         return try await send(request)
