@@ -213,6 +213,15 @@ extension RecognitionRun {
     }
 }
 
+struct VoiceCommandRequest: Codable {
+    let text: String
+}
+
+struct VoiceCommandResponse: Codable {
+    let action: String
+    let message: String
+}
+
 enum AppRoute: Equatable {
     case person(String)
     case createPerson

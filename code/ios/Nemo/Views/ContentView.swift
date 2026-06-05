@@ -43,6 +43,7 @@ struct ContentView: View {
     @StateObject private var photoWatcher = PhotoWatcher()
     @AppStorage("backendURL") private var backendURL = "http://127.0.0.1:8000"
     @AppStorage("ttsEnabled") private var ttsEnabled = true
+    @AppStorage("patientMode") private var patientMode = false
 
     @State private var selectedTab = 0
     @State private var selectedPersonID: String?
@@ -160,6 +161,8 @@ struct ContentView: View {
                             SettingsTabView(
                                 backendURL: $backendURL,
                                 ttsEnabled: $ttsEnabled,
+                                patientMode: $patientMode,
+                                voiceCommandsEnabled: $voiceCommandsEnabled,
                                 selectedExperienceTitle: activeExperience.title,
                                 photoAuthorizationStatus: photoWatcher.photoAuthorizationStatus,
                                 cameraAuthorizationStatus: cameraAuthorizationStatus,
@@ -1423,7 +1426,7 @@ private struct RecognitionRunRow: View {
 private struct SettingsTabView: View {
     @Binding var backendURL: String
     @Binding var ttsEnabled: Bool
-    let selectedExperienceTitle: String
+    @Binding var patientMode: Bool
     let photoAuthorizationStatus: PHAuthorizationStatus
     let cameraAuthorizationStatus: AVAuthorizationStatus
     let notificationAuthorizationStatus: UNAuthorizationStatus
@@ -1447,6 +1450,7 @@ private struct SettingsTabView: View {
 
                 Section("Accessibility") {
                     Toggle("Speak Recognition Results", isOn: $ttsEnabled)
+                    Toggle("Voice Commands", isOn: $voiceCommandsEnabled)
                 }
 
                 Section("Backend") {

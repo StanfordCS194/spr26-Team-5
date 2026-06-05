@@ -5,15 +5,21 @@ struct PatientModeView: View {
     @ObservedObject var photoWatcher: PhotoWatcher
     let backendURL: String
     let notifications: NotificationManager
+    let voiceCommandsEnabled: Bool
     let onRetry: () -> Void
     @State private var showingCamera = false
     @State private var showingMemories = false
+    @State private var showingMemoryPicker = false
+    @State private var showingVoiceCommands = false
     @State private var showingMemoryPicker = false
     @State private var cameraMessage: String?
     @State private var memoryMessage: String?
     @State private var isAddingMemory = false
 
     private let apiClient = APIClient()
+
+    @StateObject private var voiceCommandManager = VoiceCommandManager()
+    @StateObject private var speechManager = SpeechManager()
 
     var body: some View {
         ZStack {
@@ -30,10 +36,26 @@ struct PatientModeView: View {
                     waitingView
                 }
                 Spacer()
-                Spacer()
             }
             .padding(.vertical, 32)
             .padding(.horizontal, 46)
+
+            if voiceCommandsEnabled {
+                topRightVoiceButton
+                    .padding(.top, 18)
+                    .padding(.trailing, 18)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            }
+        }
+        .onAppear {
+            NotificationCenter.default.addObserver(
+                forName: .triggerRecognition,
+                object: nil,
+                queue: .main
+            ) { _ in
+                showingVoiceCommands = false
+                presentCamera()
+            }
         }
         .sheet(isPresented: $showingCamera) {
             CameraCaptureView(
@@ -58,6 +80,19 @@ struct PatientModeView: View {
             )
             .ignoresSafeArea()
         }
+        .onChange(of: voiceCommandsEnabled) { _, enabled in
+            if !enabled {
+                showingVoiceCommands = false
+                voiceCommandManager.stopListening()
+            }
+        }
+        .fullScreenCover(isPresented: $showingVoiceCommands) {
+            VoiceCommandListeningView(
+                voiceCommandManager: voiceCommandManager,
+                backendURL: backendURL,
+                speechManager: speechManager
+            )
+        }
         .sheet(isPresented: $showingMemories) {
             if let person = photoWatcher.lastResult?.person {
                 MemoriesGalleryView(person: person, backendURL: backendURL, allowsDelete: true)
@@ -80,6 +115,20 @@ struct PatientModeView: View {
             return
         }
         showingCamera = true
+    }
+
+    private var topRightVoiceButton: some View {
+        Button {
+            showingVoiceCommands = true
+        } label: {
+            Image(systemName: "mic.fill")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(Circle().fill(Color.blue))
+                .shadow(radius: 4, y: 2)
+        }
+        .accessibilityLabel("Voice Commands")
     }
 
     private var backgroundColor: Color {
@@ -263,6 +312,61 @@ struct PatientModeView: View {
             memoryMessage = "Memory added."
         } catch {
             memoryMessage = error.localizedDescription
+        }
+    }
+}
+
+private struct VoiceCommandListeningView: View {
+    @ObservedObject var voiceCommandManager: VoiceCommandManager
+    let backendURL: String
+    let speechManager: SpeechManager
+
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack {
+            Color(.systemBackground).ignoresSafeArea()
+
+            VStack(spacing: 28) {
+                Spacer()
+
+                Image(systemName: voiceCommandManager.isListening ? "mic.fill" : "mic")
+                    .font(.system(size: 92, weight: .semibold))
+                    .foregroundStyle(voiceCommandManager.isListening ? .red : .blue)
+
+                Text(voiceCommandManager.isListening ? "Listening..." : "Starting...")
+                    .font(.system(size: 46, weight: .bold))
+                    .multilineTextAlignment(.center)
+
+                Text("Say \"Hey Nemo, who is this\".")
+                    .font(.system(size: 26))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+
+                Spacer()
+
+                Button {
+                    voiceCommandManager.stopListening()
+                    dismiss()
+                } label: {
+                    Label("Done", systemImage: "xmark.circle.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 18)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 32)
+            }
+        }
+        .onAppear {
+            voiceCommandManager.requestPermissions()
+            voiceCommandManager.startListening(baseURL: backendURL, speechManager: speechManager)
+        }
+        .onDisappear {
+            voiceCommandManager.stopListening()
         }
     }
 }

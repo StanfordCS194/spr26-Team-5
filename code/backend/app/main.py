@@ -15,7 +15,17 @@ from .recognition import (
     Recognizer,
     face_distance,
 )
-from .schemas import FaceEncodingSummary, HealthResponse, Person, PersonMemory, PersonUpdate, RecognitionResponse
+
+from .schemas import (
+    FaceEncodingSummary,
+    HealthResponse,
+    Person,
+    PersonMemory,
+    PersonUpdate,
+    RecognitionResponse,
+    VoiceCommandRequest,
+    VoiceCommandResponse,
+)
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "face_recall.sqlite"
 DEFAULT_DISTANCE_THRESHOLD = 0.6
@@ -262,7 +272,21 @@ def create_app(
             distance=distance,
             face_count=result.face_count,
         )
+    
+    @app.post("/voice-command", response_model=VoiceCommandResponse)
+    def voice_command(request: VoiceCommandRequest) -> VoiceCommandResponse:
+        text = request.text.strip().lower()
 
+        if any(phrase in text for phrase in ["who is this", "who's this", "who is that"]):
+            return VoiceCommandResponse(
+                action="recognize",
+                message="Point the camera at the person",
+            )
+        else:
+            return VoiceCommandResponse(
+                action="unknown",
+                message="Sorry, I didn't understand that command. Try saying who is this",
+            )
     return app
 
 
