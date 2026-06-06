@@ -11,6 +11,7 @@ struct Person: Codable, Identifiable, Equatable {
     let createdAt: String
     let relationship: String
     let notes: String
+    let lastSeen: String?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -19,6 +20,7 @@ struct Person: Codable, Identifiable, Equatable {
         case createdAt = "created_at"
         case relationship
         case notes
+        case lastSeen = "last_seen"
     }
 
     init(from decoder: Decoder) throws {
@@ -29,6 +31,7 @@ struct Person: Codable, Identifiable, Equatable {
         createdAt = try container.decode(String.self, forKey: .createdAt)
         relationship = try container.decodeIfPresent(String.self, forKey: .relationship) ?? ""
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        lastSeen = try container.decodeIfPresent(String.self, forKey: .lastSeen)
     }
 }
 
@@ -42,6 +45,16 @@ extension Person {
             return "Close Friend"
         }
         return relationship.isEmpty ? nil : relationship.capitalized
+    }
+
+    var lastSeenLabel: String? {
+        guard let lastSeen else { return nil }
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: lastSeen) else { return nil }
+        let relative = RelativeDateTimeFormatter()
+        relative.unitsStyle = .full
+        return relative.localizedString(for: date, relativeTo: Date())
     }
 }
 
@@ -83,6 +96,15 @@ struct FaceEncodingSummary: Codable, Identifiable, Equatable {
         case personID = "person_id"
         case createdAt = "created_at"
         case hasImage = "has_image"
+    }
+
+    var relativeCreatedAt: String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        guard let date = formatter.date(from: createdAt) else { return createdAt }
+        let relative = RelativeDateTimeFormatter()
+        relative.unitsStyle = .full
+        return relative.localizedString(for: date, relativeTo: Date())
     }
 }
 
