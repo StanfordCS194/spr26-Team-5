@@ -92,12 +92,18 @@ struct ContentView: View {
                                     }
                                 )
                                 .toolbar {
-                                    ToolbarItem(placement: .topBarTrailing) {
-                                        Button("Switch") {
-                                            caregiverAccessGranted = false
-                                            selectedExperience = nil
-                                            selectedTab = 0
+                                    if voiceCommandsEnabled {
+                                        ToolbarItem(placement: .topBarLeading) {
+                                            Button {
+                                                NotificationCenter.default.post(name: .openVoiceCommands, object: nil)
+                                            } label: {
+                                                Label("Voice Commands", systemImage: "mic.fill")
+                                            }
                                         }
+                                    }
+
+                                    ToolbarItem(placement: .topBarTrailing) {
+                                        switchExperienceButton
                                     }
                                 }
                             }
@@ -106,7 +112,10 @@ struct ContentView: View {
                             }
                             .tag(0)
 
-                            PatientPeopleTabView(backendURL: backendURL)
+                            PatientPeopleTabView(
+                                backendURL: backendURL,
+                                onSwitchExperience: switchExperience
+                            )
                                 .tabItem {
                                     Label("People", systemImage: "person.2")
                                 }
@@ -129,7 +138,8 @@ struct ContentView: View {
                                 },
                                 onOpenSettings: {
                                     selectedTab = 2
-                                }
+                                },
+                                onSwitchExperience: switchExperience
                             )
                             .tabItem {
                                 Label("Recognize", systemImage: "camera.viewfinder")
@@ -153,7 +163,8 @@ struct ContentView: View {
                                 },
                                 onDeleteAllRuns: {
                                     photoWatcher.deleteAllRecognitionRuns()
-                                }
+                                },
+                                onSwitchExperience: switchExperience
                             )
                             .tabItem {
                                 Label("History", systemImage: "clock")
@@ -191,11 +202,7 @@ struct ContentView: View {
                                         await checkHealth()
                                     }
                                 },
-                                chooseExperience: {
-                                    caregiverAccessGranted = false
-                                    selectedExperience = nil
-                                    selectedTab = 0
-                                }
+                                chooseExperience: switchExperience
                             )
                             .tabItem {
                                 Label("Settings", systemImage: "gearshape")
@@ -300,6 +307,18 @@ struct ContentView: View {
             return
         }
         await photoWatcher.scanLatestPhoto(baseURL: backendURL, notifications: notifications)
+    }
+
+    private func switchExperience() {
+        caregiverAccessGranted = false
+        selectedExperience = nil
+        selectedTab = 0
+    }
+
+    private var switchExperienceButton: some View {
+        Button(action: switchExperience) {
+            Text("Switch")
+        }
     }
 
     private static func speechText(for response: RecognitionResponse) -> String {
@@ -478,6 +497,7 @@ private struct RecognitionTabView: View {
     let notifications: NotificationManager
     let onRetry: () -> Void
     let onOpenSettings: () -> Void
+    let onSwitchExperience: () -> Void
     @State private var showingCamera = false
     @State private var cameraMessage: String?
     @State private var showingChangePerson = false
@@ -574,6 +594,13 @@ private struct RecognitionTabView: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Recognition")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: onSwitchExperience) {
+                        Text("Switch")
+                    }
+                }
+            }
             .sheet(isPresented: $showingCamera) {
                 CameraCaptureView(
                     onCapture: { imageData in
@@ -1201,6 +1228,7 @@ private struct HistoryTabView: View {
     let onDatabaseLoaded: ([Person]) -> Void
     let onDeleteRun: (UUID) -> Void
     let onDeleteAllRuns: () -> Void
+    let onSwitchExperience: () -> Void
 
     private var recentRuns: [RecognitionRun] {
         Array(runs.prefix(5))
@@ -1259,12 +1287,20 @@ private struct HistoryTabView: View {
                 }
             }
             .navigationTitle("History")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: onSwitchExperience) {
+                        Text("Switch")
+                    }
+                }
+            }
         }
     }
 }
 
 private struct PatientPeopleTabView: View {
     let backendURL: String
+    let onSwitchExperience: () -> Void
 
     @State private var people: [Person] = []
     @State private var isLoading = false
@@ -1323,6 +1359,11 @@ private struct PatientPeopleTabView: View {
             }
             .navigationTitle("People")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: onSwitchExperience) {
+                        Text("Switch")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         Task {
@@ -1492,6 +1533,13 @@ private struct SettingsTabView: View {
                 }
             }
             .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: chooseExperience) {
+                        Text("Switch")
+                    }
+                }
+            }
         }
     }
 

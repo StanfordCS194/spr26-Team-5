@@ -9,20 +9,15 @@ struct PatientModeView: View {
     let onRetry: () -> Void
     @State private var showingCamera = false
     @State private var showingMemories = false
-    @State private var showingMemoryPicker = false
     @State private var showingVoiceCommands = false
     @State private var cameraMessage: String?
-    @State private var memoryMessage: String?
-    @State private var isAddingMemory = false
-
-    private let apiClient = APIClient()
 
     @StateObject private var voiceCommandManager = VoiceCommandManager()
     @StateObject private var speechManager = SpeechManager()
 
     var body: some View {
         ZStack {
-            backgroundColor.ignoresSafeArea()
+            backgroundView.ignoresSafeArea()
             VStack(spacing: 40) {
                 Spacer()
                 if photoWatcher.isProcessing {
@@ -41,13 +36,6 @@ struct PatientModeView: View {
             }
             .padding(.vertical, 32)
             .padding(.horizontal, 46)
-
-            if voiceCommandsEnabled {
-                topRightVoiceButton
-                    .padding(.top, 18)
-                    .padding(.trailing, 18)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            }
         }
         .onAppear {
             NotificationCenter.default.addObserver(
@@ -57,6 +45,14 @@ struct PatientModeView: View {
             ) { _ in
                 showingVoiceCommands = false
                 presentCamera()
+            }
+            NotificationCenter.default.addObserver(
+                forName: .openVoiceCommands,
+                object: nil,
+                queue: .main
+            ) { _ in
+                guard voiceCommandsEnabled else { return }
+                showingVoiceCommands = true
             }
         }
         .sheet(isPresented: $showingCamera) {
@@ -97,16 +93,7 @@ struct PatientModeView: View {
         }
         .sheet(isPresented: $showingMemories) {
             if let person = photoWatcher.lastResult?.person {
-                MemoriesGalleryView(person: person, backendURL: backendURL, allowsDelete: true)
-            }
-        }
-        .sheet(isPresented: $showingMemoryPicker) {
-            MemoryPickerView { selection in
-                if let person = photoWatcher.lastResult?.person {
-                    Task {
-                        await uploadMemory(selection, for: person)
-                    }
-                }
+                MemoriesGalleryView(person: person, backendURL: backendURL)
             }
         }
     }
@@ -142,26 +129,20 @@ struct PatientModeView: View {
         .background(Color.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private var topRightVoiceButton: some View {
-        Button {
-            showingVoiceCommands = true
-        } label: {
-            Image(systemName: "mic.fill")
-                .font(.system(size: 24, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 56, height: 56)
-                .background(Circle().fill(Color.blue))
-                .shadow(radius: 4, y: 2)
-        }
-        .accessibilityLabel("Voice Commands")
+    private var backgroundView: some View {
+        LinearGradient(
+            colors: [Color(.systemGroupedBackground), patientAccentColor.opacity(0.10)],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
     }
 
-    private var backgroundColor: Color {
-        if photoWatcher.isProcessing { return Color(.systemBackground) }
+    private var patientAccentColor: Color {
+        if photoWatcher.isProcessing { return .blue }
         if let result = photoWatcher.lastResult {
-            return result.status == .recognized ? Color.green.opacity(0.15) : Color.orange.opacity(0.15)
+            return result.status == .recognized ? .green : .orange
         }
-        return Color(.systemBackground)
+        return .blue
     }
 
     private var processingView: some View {
@@ -194,48 +175,27 @@ struct PatientModeView: View {
                 }
 
                 if !person.description.isEmpty {
-                    Text(person.description)
-                        .font(.system(size: 26))
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                        .frame(maxWidth: .infinity)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                    ScrollView {
+                        Text(person.description)
+                            .font(.system(size: 26))
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                    }
+                    .frame(minHeight: 120, maxHeight: 260)
+                    .scrollIndicators(.visible)
                 }
 
-                if let memoryMessage {
-                    Text(memoryMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                }
             }
 
             Spacer(minLength: 28)
 
             Button {
-                showingMemoryPicker = true
-            } label: {
-                if isAddingMemory {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 10)
-                } else {
-                    Label("Add Memory", systemImage: "plus.rectangle.on.folder")
-                        .font(.system(size: 20, weight: .semibold))
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 10)
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
-            .tint(.purple)
-            .disabled(isAddingMemory)
-
-            Button {
                 showingMemories = true
             } label: {
-                Label("Look through Memories", systemImage: "photo.stack")
+                Label("Look Through Memories", systemImage: "photo.stack")
                     .font(.system(size: 20, weight: .semibold))
                     .padding(.horizontal, 20)
                     .padding(.vertical, 10)
@@ -256,6 +216,7 @@ struct PatientModeView: View {
             .padding(.top, 4)
 
             Spacer()
+                .frame(height: 34)
         }
         .padding(.top, 24)
     }
@@ -321,24 +282,10 @@ struct PatientModeView: View {
         }
     }
 
-    private func uploadMemory(_ selection: MemoryMediaSelection, for person: Person) async {
-        isAddingMemory = true
-        memoryMessage = nil
-        defer { isAddingMemory = false }
+}
 
-        do {
-            _ = try await apiClient.addPersonMemory(
-                id: person.id,
-                data: selection.data,
-                mimeType: selection.mimeType,
-                fileName: selection.fileName,
-                baseURL: backendURL
-            )
-            memoryMessage = "Memory added."
-        } catch {
-            memoryMessage = error.localizedDescription
-        }
-    }
+extension Notification.Name {
+    static let openVoiceCommands = Notification.Name("openVoiceCommands")
 }
 
 private struct VoiceCommandListeningView: View {
